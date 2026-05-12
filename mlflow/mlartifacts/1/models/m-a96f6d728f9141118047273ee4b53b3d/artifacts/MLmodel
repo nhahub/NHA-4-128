@@ -1,0 +1,22 @@
+artifact_path: file:C:/Users/Mega Store/backend/mlflow/mlartifacts/1/models/m-a96f6d728f9141118047273ee4b53b3d/artifacts
+flavors:
+  python_function:
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.tensorflow
+    python_version: 3.12.8
+  tensorflow:
+    code: null
+    data: data
+    keras_version: 2.21.0
+    model_type: keras
+    save_format: tf
+mlflow_version: 3.11.1
+model_id: m-a96f6d728f9141118047273ee4b53b3d
+model_size_bytes: 7891723
+model_uuid: m-a96f6d728f9141118047273ee4b53b3d
+prompts: null
+run_id: 1df3539cb8f4413096cbd419ecb6b25b
+utc_time_created: '2026-04-20 18:12:01.704496'
