@@ -112,7 +112,3 @@ http://localhost:8000
 * FAISS
 * HTML, CSS, JavaScript
 * Groq API
-
-- أول تشغيل بياخد وقت أطول (تحميل الموديلات + بناء الـ vectorstore) — طبيعي.
-- الصور المسجّلة للدكاترة بتتخزن في `data/image_registry.json` (بيتعمل تلقائيًا).
-- لو غيّرت بورت أو دومين، حدّث `API_BASE` في `static/index.html` لو هتستضيف الواجهة على سيرفر منفصل.
