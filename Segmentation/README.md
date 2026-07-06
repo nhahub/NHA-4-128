@@ -8,7 +8,7 @@ https://www.kaggle.com/datasets/apurboshahidshawon/resized-dataset-for-skin-lesi
 
 * The architecture we are implementing is suggested in [this](https://arxiv.org/pdf/1511.00561.pdf) paper.
 
-
+```
 project arch/
 │
 ├── readme.md                  
@@ -33,3 +33,4 @@ project arch/
 │
 └── notebooks/
     └── unet-segmentation.ipynb
+```
