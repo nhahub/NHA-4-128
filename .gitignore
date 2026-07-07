@@ -1,0 +1,39 @@
+# Virtual environments (مهم جداً)
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Large binary files
+*.dll
+*.pyd
+*.so
+*.pt
+*.onnx
+
+
+# Logs
+*.log
+startup.log
+
+# AI/ML data
+.faiss/
+.chroma/
+data/
+
+# IDE & OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets
+secrets.toml
+*.key
