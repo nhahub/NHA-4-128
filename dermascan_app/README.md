@@ -1,45 +1,114 @@
-# DermaScan AI — تشغيل المشروع
+# DermaScan AI — Project Setup & Run Guide
 
-## الملفات
-```
+## Project Structure
+
+```text
 dermascan_app/
-├── main.py              ← الباك-إند (FastAPI)
-├── agent.py             ← الـ LangGraph agent (نفس المنطق، مع صلاحيات الدور)
-├── rag.py               ← بناء قاعدة المعرفة (بدون تغيير)
-├── image_registry.py    ← مطابقة الصور المسجّلة سابقًا
+├── main.py              # FastAPI backend
+├── agent.py             # LangGraph agent with role-based permissions
+├── rag.py               # Knowledge base builder
+├── image_registry.py    # Previously registered image matching
 ├── requirements.txt
 └── static/
-    └── index.html       ← الواجهة (شات فعلي متصل بالباك-إند)
+    └── index.html       # Frontend chat interface
 ```
 
-## قبل التشغيل — ضيف الملفات دي جنب main.py:
-1. `skin_cancer_detection_final.keras`
-2. `UNet_model.keras`
-3. مجلد `data/` فيه:
-   - `updated_file_2.xlsx`
-   - `kb/*.md` (ملفات قاعدة المعرفة)
+## Required Files
 
-## التثبيت والتشغيل (Windows PowerShell)
+Before running the application, place the following files in the project directory:
+
+### Model Files
+
+* `skin_cancer_detection_final.keras`
+* `UNet_model.keras`
+
+### Data Directory
+
+Create a `data/` folder containing:
+
+```text
+data/
+├── updated_file_2.xlsx
+└── kb/
+    ├── 01_diagnoses_overview.md
+    ├── 02_risk_factors.md
+    ├── 03_genetics_and_hereditary.md
+    ├── 04_lesion_characteristics.md
+    ├── 05_patient_management.md
+    └── 06_image_and_dataset_info.md
+```
+
+## Installation & Execution (Windows PowerShell)
+
+### 1. Navigate to the Project Folder
+
 ```powershell
 cd dermascan_app
+```
+
+### 2. Create a Virtual Environment
+
+```powershell
 python -m venv .venv
+```
+
+### 3. Activate the Virtual Environment
+
+```powershell
 .venv\Scripts\activate
+```
+
+### 4. Install Dependencies
+
+```powershell
 pip install -r requirements.txt
+```
 
-# ضبط مفتاح Groq (لجلسة الترمينال الحالية فقط)
-$env:GROQ_API_KEY="ضع_المفتاح_هنا"
+### 5. Configure the Groq API Key
 
+```powershell
+$env:GROQ_API_KEY="YOUR_GROQ_API_KEY"
+```
+
+### 6. Start the Application
+
+```powershell
 uvicorn main:app --reload --port 8000
 ```
 
-بعد ما يظهر `Application startup complete`، افتح المتصفح على:
+When the terminal displays:
+
+```text
+Application startup complete
 ```
+
+open your browser and navigate to:
+
+```text
 http://localhost:8000
 ```
 
-هتلاقي واجهة الشات شغالة فعليًا: اختيار الدور بزرار، رفع صورة، تحليل حقيقي (تصنيف + سجمنتيشن)، تقرير الدكتور عند مطابقة صورة، درجة أولوية حجز المريض، وشات مع الـ AI.
+## Features
 
-## ملاحظات
-- أول تشغيل بياخد وقت أطول (تحميل الموديلات + بناء الـ vectorstore) — طبيعي.
-- الصور المسجّلة للدكاترة بتتخزن في `data/image_registry.json` (بيتعمل تلقائيًا).
-- لو غيّرت بورت أو دومين، حدّث `API_BASE` في `static/index.html` لو هتستضيف الواجهة على سيرفر منفصل.
+* Role-based AI assistant (Patient / Doctor)
+* Interactive chat interface
+* Skin lesion image upload
+* Skin cancer classification
+* Lesion segmentation using U-Net
+* AI-generated medical guidance
+* Patient priority assessment
+* Doctor report generation for matched cases
+* Retrieval-Augmented Generation (RAG) knowledge base
+* LangGraph-powered workflow orchestration
+
+## Tech Stack
+
+* Python
+* FastAPI
+* LangGraph
+* LangChain
+* TensorFlow / Keras
+* U-Net
+* FAISS
+* HTML, CSS, JavaScript
+* Groq API
