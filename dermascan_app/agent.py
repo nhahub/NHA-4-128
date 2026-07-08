@@ -143,6 +143,14 @@ def _store_current_images(paths: list) -> None:
     existing = _SESSIONS[_CURRENT_THREAD_ID].get("_current_images", [])
     existing.extend(paths)
     _SESSIONS[_CURRENT_THREAD_ID]["_current_images"] = existing
+    # Also store just basenames for patient access verification (never popped)
+    import os as _os
+    existing_names = _SESSIONS[_CURRENT_THREAD_ID].get("_session_image_names", [])
+    for p in paths:
+        bn = _os.path.basename(p)
+        if bn not in existing_names:
+            existing_names.append(bn)
+    _SESSIONS[_CURRENT_THREAD_ID]["_session_image_names"] = existing_names
 
 
 def _is_analysis_request(query: str) -> bool:
@@ -161,14 +169,29 @@ SYSTEM_PROMPT = """You are DermaScan AI, an intelligent dermatology support assi
 built on a real clinical dataset of 1000 skin cancer patients.
 You were built by Eng. Youssef Bastawisy.
 
-CRITICAL — NEVER refuse image analysis. Your tools handle ALL image processing automatically.
-When the user asks you to analyze/classify/segment/examine a patient image, you MUST call the
-appropriate tool (lookup_patient_with_image, classify_patient_image, segment_patient_image,
-analyze_patient_image) WITHOUT any refusal or claim that you cannot read images.
-NEVER say "Cannot read image" or "does not support image input" or "I cannot see images"
-or anything similar — these tools do the image work for you, so there is nothing to refuse.
-If the user provides a file path or filename like "image.png", tell them to use the upload
-button — but NEVER claim the model cannot process images. You have full image analysis tools.
+ABSOLUTE RULE — Images are handled by tools, NOT by you directly.
+You MUST NEVER say "Cannot read image", "does not support image input",
+"I cannot see images", "I cannot process images", or anything similar.
+You MUST NEVER describe the contents of an image.
+
+When a user asks about their image (analyze, segment, mask, overlay, re-analyze,
+examine, inspect), IMMEDIATELY call the appropriate tool — do not hesitate,
+do not refuse, do not tell them to click a button. Just call the tool.
+The tool runs the AI model on the backend and the results appear in the UI.
+
+Available patient tools for image requests:
+- segment_my_image — for "segment", "mask", "overlay", "affected area"
+- reanalyze_my_image — for "analyze my image", "re-analyze", "full analysis"
+- get_my_uploaded_image — only for "show my image" or "view my photo"
+
+When a tool returns [ANALYSIS_RESULT:{data}], your reply must discuss ONLY
+the text data (label, confidence %, affected area %) — NEVER mention
+the image itself or that it was "shown" or "displayed".
+
+If the user asks to "show my image" or "view my photo", tell them to use the
+📷 Show My Image button (this just displays the stored photo, no models needed).
+If the user asks to analyze a patient record (e.g. P0042), call the appropriate
+tool — the tool handles everything automatically, just report the results.
 
 LANGUAGE RULE (very important, follow strictly):
 - Always reply in the SAME language and dialect the user just wrote in.
@@ -226,6 +249,15 @@ Tool usage:
   classification model and segmentation model. Returns diagnosis, confidence,
   infection percentage, mask, and overlay. This uses the same Keras models as the
   manual image upload. Example: "analyze image of P0042" or "full analysis P0042".
+- get_my_uploaded_image — [PATIENT MODE] Tell patient their image is stored and to use the
+  📷 Show My Image button. Never describe or display the image content yourself.
+- segment_my_image — [PATIENT MODE] Run ONLY the U-Net segmentation model on the
+  patient's stored image. Use when the patient asks "Show the segmentation", "Segment my
+  image", "Show the mask", "Show the overlay". Returns mask/overlay images + infection %.
+- reanalyze_my_image — [PATIENT MODE] Re-run FULL AI analysis (classification + segmentation)
+  on the patient's most recently uploaded image. Use when they ask "Re-analyze my image",
+  "What were my results", "Full analysis". Returns classification label, confidence,
+  infection %, and all images (original, mask, overlay).
 - create_referral_ticket — ONLY when the user explicitly asks for a referral or
   says they need to see a specialist urgently. Never call it just because a result
   was malignant — mention the recommendation in text, and let the user decide.
@@ -933,6 +965,147 @@ def analyze_patient_image(patient_id: str) -> str:
 
 
 @tool
+def get_my_uploaded_image() -> str:
+    """
+    [PATIENT MODE] Tell the patient their image is stored and available.
+    Use when the patient asks: "Show my uploaded image", "Return my last image".
+    Just confirm the image exists and tell them to use the Show My Image button.
+    """
+    if _CURRENT_ROLE != "patient":
+        return "🚫 This tool is only available in patient mode."
+    if not _SESSIONS or not _CURRENT_THREAD_ID:
+        return "No session found."
+    from patient_storage import get_latest_image
+    latest = get_latest_image(_CURRENT_THREAD_ID)
+    if not latest:
+        return (
+            "You haven't uploaded any images yet. Use the 📎 upload button "
+            "above to upload a skin image for analysis."
+        )
+    return (
+        "Your image is saved on the server. Click the 📷 **Show My Image** button "
+        "above to view it. The button appears below the analysis results."
+    )
+
+
+@tool
+def segment_my_image() -> str:
+    """
+    [PATIENT MODE] Run ONLY the U-Net segmentation model on the patient's stored image.
+    Use when the patient asks: "Show me the segmentation", "Segment my stored image",
+    "What is the affected area", "Show the mask", "Show the overlay".
+    Runs the U-Net model and returns the mask and overlay images with infection percentage.
+    The result images appear in the UI automatically.
+    """
+    if _CURRENT_ROLE != "patient":
+        return "🚫 This tool is only available in patient mode."
+    if not _SESSIONS or not _CURRENT_THREAD_ID:
+        return "No session found."
+    from patient_storage import get_latest_image
+    latest = get_latest_image(_CURRENT_THREAD_ID)
+    if not latest:
+        return "You haven't uploaded any images yet. Use the 📎 upload button above to upload a skin image for analysis."
+
+    image_path_str = latest["path"]
+    image_path = __import__("pathlib").Path(image_path_str)
+    if not image_path.exists():
+        return "Your stored image file is no longer available. Please upload again."
+
+    try:
+        from PIL import Image as _PIL
+        image = _PIL.open(image_path).convert("RGB")
+        seg_result = _segment_image(image)
+
+        if not seg_result:
+            return "⚠️ Segmentation model is not loaded yet. Please try again later."
+
+        mask_path = _save_image_to_cache(seg_result["display_mask"], f"patient_mask.png")
+        overlay_path = _save_image_to_cache(seg_result["blended"], f"patient_overlay.png")
+        _store_current_images([mask_path, overlay_path])
+
+        import json as _json
+        result_data = {
+            "label": "",
+            "confidence_pct": 0,
+            "infection_pct": seg_result.get("infection_pct", 0),
+        }
+        marker = f"[ANALYSIS_RESULT:{_json.dumps(result_data)}]"
+
+        lines = [marker, ""]
+        lines.append("**🎭 SEGMENTATION OF YOUR IMAGE**\n")
+        lines.append(f"**Affected Area:** {seg_result['infection_pct']}%")
+        lines.append("")
+        lines.append("The mask and overlay images appear below.")
+        return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Error in segment_my_image: {e}", exc_info=True)
+        return f"❌ Error segmenting image: {str(e)}"
+
+
+@tool
+def reanalyze_my_image() -> str:
+    """
+    [PATIENT MODE] Run FULL AI analysis (classification + segmentation) on the patient's
+    most recently uploaded image. Use when the patient asks: "Re-analyze my image",
+    "Analyze my previous image", "What were my results?", "Full analysis".
+    Runs BOTH the classification (Malignant/Benign) and U-Net segmentation models.
+    Displays the original image, mask, and overlay with infection percentage.
+    """
+    if _CURRENT_ROLE != "patient":
+        return "🚫 This tool is only available in patient mode."
+    if not _SESSIONS or not _CURRENT_THREAD_ID:
+        return "No session found."
+    from patient_storage import get_latest_image
+    latest = get_latest_image(_CURRENT_THREAD_ID)
+    if not latest:
+        return "You haven't uploaded any images yet. Use the 📎 upload button above to upload a skin image for analysis."
+
+    image_path_str = latest["path"]
+    image_path = __import__("pathlib").Path(image_path_str)
+    if not image_path.exists():
+        return "Your stored image file is no longer available. Please upload again."
+
+    try:
+        from PIL import Image
+        image = Image.open(image_path).convert("RGB")
+        clf_result = _classify_image(image)
+        seg_result = _segment_image(image)
+
+        if not clf_result and not seg_result:
+            return "⚠️ AI models are not loaded yet. Please try again later."
+
+        stored_images = []
+        if seg_result:
+            mask_path = _save_image_to_cache(seg_result["display_mask"], f"patient_mask.png")
+            overlay_path = _save_image_to_cache(seg_result["blended"], f"patient_overlay.png")
+            stored_images.extend([mask_path, overlay_path])
+        _store_current_images(stored_images)
+
+        result_data = {
+            "label": clf_result.get("label", ""),
+            "confidence_pct": clf_result.get("confidence_pct", 0),
+            "infection_pct": seg_result.get("infection_pct", 0) if seg_result else 0,
+        }
+
+        import json as _json
+        marker = f"[ANALYSIS_RESULT:{_json.dumps(result_data)}]"
+
+        lines = [marker, ""]
+        lines.append("**🔬 ANALYSIS OF YOUR IMAGE**\n")
+        if clf_result:
+            lines.append(f"**Classification:** {clf_result['label']} (Confidence: {clf_result['confidence_pct']}%)")
+        if seg_result:
+            lines.append(f"**Affected Area:** {seg_result['infection_pct']}%")
+        lines.append("")
+        lines.append("The mask and overlay images appear below.")
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"Error in reanalyze_my_image: {e}", exc_info=True)
+        return f"❌ Error analyzing image: {str(e)}"
+
+
+@tool
 def create_referral_ticket(issue_summary: str, urgency: str = "routine") -> str:
     """Create a dermatologist referral ticket."""
     ticket_id = "DS-" + "".join(random.choices(string.digits, k=6))
@@ -1037,7 +1210,7 @@ def build_agent(retriever, model_name: str = "llama-3.3-70b-versatile", temperat
     # ملاحظة: book_appointment اتشالت من هنا عمدًا. الحجز بيحصل بس عن طريق
     # زرار "احجز موعد الآن" في الواجهة (استدعاء مباشر للدالة)، مش عن طريق
     # الشات، عشان الموديل ميحجزش لوحده على أي كلام عام.
-    tools = [search_knowledge_base, lookup_patient, get_patient_image, lookup_patient_with_image, classify_patient_image, segment_patient_image, analyze_patient_image, create_referral_ticket]
+    tools = [search_knowledge_base, lookup_patient, get_patient_image, lookup_patient_with_image, classify_patient_image, segment_patient_image, analyze_patient_image, get_my_uploaded_image, reanalyze_my_image, create_referral_ticket]
     memory = MemorySaver()
 
     return create_react_agent(

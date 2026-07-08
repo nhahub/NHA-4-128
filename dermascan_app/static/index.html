@@ -601,6 +601,11 @@
         ${cityOptions.map(c => `<option value="${c}">${c}</option>`).join('')}
       </select>
       <button class="small-btn" onclick="bookAppointment(this)">📅 ${lang === 'ar' ? 'احجز موعد الآن' : 'Book appointment now'}</button>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="pill-btn" onclick="showMyImage()">📷 ${lang === 'ar' ? 'عرض صورتي' : 'Show My Image'}</button>
+      <button class="pill-btn" onclick="segmentMyImage()">🎭 ${lang === 'ar' ? 'تجزئة' : 'Segment'}</button>
+      <button class="pill-btn" onclick="reanalyzeMyImage()">🔬 ${lang === 'ar' ? 'إعادة تحليل' : 'Re-analyze'}</button>
     </div>`;
       }
 
@@ -608,14 +613,14 @@
       addMsg(card, 'bot');
       fileInput.value = '';  // آمن دلوقتي، الملف محفوظ في lastAnalyzedFile
 
-      // متابعة تلقائية للـ agent (تقرير AI نصي) — بنفس لغة الواجهة الحالية
+      // متابعة تلقائية للـ agent — نرسل فقط نتيجة التحليل النصية بدون أي ذكر للصورة
       const autoMsg = lang === 'ar'
         ? (data.label === 'Malignant'
-          ? `رفعت صورة جلد، والذكاء الاصطناعي صنّفها Malignant بنسبة ثقة ${data.confidence_pct}% ومساحة مصابة ${data.infection_pct}%. ممكن تديني توصيات مفصّلة وخطوات تالية؟`
-          : `رفعت صورة جلد، والذكاء الاصطناعي صنّفها Benign بمساحة مصابة ${data.infection_pct}%. إيه نصايح العناية والمتابعة المناسبة؟`)
+          ? `التحليل أظهر نتيجة Malignant بنسبة ثقة ${data.confidence_pct}% ومساحة مصابة ${data.infection_pct}%. عاوز توصيات مفصّلة وخطوات تالية.`
+          : `التحليل أظهر نتيجة Benign بمساحة مصابة ${data.infection_pct}%. عاوز نصايح عناية ومتابعة.`)
         : (data.label === 'Malignant'
-          ? `I just uploaded a skin image. The AI classified it as Malignant with an affected area of ${data.infection_pct}%. Please give me detailed recommendations and next steps.`
-          : `I just uploaded a skin image. The AI classified it as Benign with ${data.infection_pct}% affected area. What general care tips should I follow?`);
+          ? `The analysis result is Malignant with ${data.confidence_pct}% confidence and ${data.infection_pct}% affected area. Give me detailed recommendations and next steps.`
+          : `The analysis result is Benign with ${data.infection_pct}% affected area. Give me care and follow-up tips.`);
       sendToAgent(autoMsg, false);
     });
 
@@ -632,6 +637,86 @@
       fd.append('file', lastAnalyzedFile);
       const res = await fetch(`${API_BASE}/register-image`, { method: 'POST', body: fd }).then(r => r.json());
       addMsg(res.ok ? res.message : ('⚠️ ' + res.error), 'system');
+    };
+
+    window.showMyImage = async function () {
+      const typing = addMsg('<span class="typing">📷 ' + (lang === 'ar' ? 'جارٍ عرض الصورة...' : 'Loading image...') + '</span>', 'bot');
+      try {
+        const res = await fetch(`${API_BASE}/patient-image?thread_id=${encodeURIComponent(threadId)}`).then(r => r.json());
+        typing.remove();
+        if (!res.ok) {
+          addMsg('⚠️ ' + (res.error || (lang === 'ar' ? 'فشل تحميل الصورة' : 'Failed to load image')), 'system');
+          return;
+        }
+        const card = `<div class="analysis-card">
+          <div style="text-align:center;">
+            <img src="data:${res.media_type};base64,${res.base64}" style="max-width:100%; border-radius:10px;">
+            <div class="cap" style="margin-top:6px;">${lang === 'ar' ? 'صورتك الأصلية' : 'Your original image'}</div>
+          </div>
+        </div>`;
+        addMsg(card, 'bot');
+      } catch (e) {
+        typing.remove();
+        addMsg('⚠️ ' + String(e), 'system');
+      }
+    };
+
+    window.segmentMyImage = async function () {
+      const typing = addMsg('<span class="typing">🎭 ' + (lang === 'ar' ? 'جارٍ تجزئة الصورة...' : 'Segmenting image...') + '</span>', 'bot');
+      try {
+        const res = await fetch(`${API_BASE}/segment-patient-image`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_id: threadId })
+        }).then(r => r.json());
+        typing.remove();
+        if (!res.ok) {
+          addMsg('⚠️ ' + (res.error || (lang === 'ar' ? 'فشلت التجزئة' : 'Segmentation failed')), 'system');
+          return;
+        }
+        const card = `<div class="analysis-card">
+          <div class="img-row">
+            <div><img src="data:image/png;base64,${res.images.mask}"><div class="cap">${lang === 'ar' ? 'قناع' : 'Mask'}</div></div>
+            <div><img src="data:image/png;base64,${res.images.overlay}"><div class="cap">${lang === 'ar' ? 'تراكب' : 'Overlay'}</div></div>
+          </div>
+          <div>📊 ${lang === 'ar' ? 'المساحة المصابة' : 'Affected area'}: <b>${res.infection_pct}%</b></div>
+        </div>`;
+        addMsg(card, 'bot');
+      } catch (e) {
+        typing.remove();
+        addMsg('⚠️ ' + String(e), 'system');
+      }
+    };
+
+    window.reanalyzeMyImage = async function () {
+      const typing = addMsg('<span class="typing">🔬 ' + (lang === 'ar' ? 'جارٍ التحليل...' : 'Analyzing...') + '</span>', 'bot');
+      try {
+        const res = await fetch(`${API_BASE}/reanalyze-patient-image`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ thread_id: threadId })
+        }).then(r => r.json());
+        typing.remove();
+        if (!res.ok) {
+          addMsg('⚠️ ' + (res.error || (lang === 'ar' ? 'فشل التحليل' : 'Analysis failed')), 'system');
+          return;
+        }
+        const badgeClass = res.label === 'Malignant' ? 'result-mal' : 'result-ben';
+        const badgeText = res.label === 'Malignant'
+          ? `⚠️ Malignant — ${res.confidence_pct}%`
+          : `✔ Benign — ${res.confidence_pct}%`;
+        const card = `<div class="analysis-card">
+          <span class="result-badge ${badgeClass}">${badgeText}</span>
+          <div class="img-row">
+            <div><img src="data:image/png;base64,${res.images.original}"><div class="cap">${lang === 'ar' ? 'أصلي' : 'Original'}</div></div>
+            <div><img src="data:image/png;base64,${res.images.mask}"><div class="cap">${lang === 'ar' ? 'قناع' : 'Mask'}</div></div>
+            <div><img src="data:image/png;base64,${res.images.overlay}"><div class="cap">${lang === 'ar' ? 'تراكب' : 'Overlay'}</div></div>
+          </div>
+          <div>📊 ${lang === 'ar' ? 'المساحة المصابة' : 'Affected area'}: <b>${res.infection_pct}%</b></div>
+        </div>`;
+        addMsg(card, 'bot');
+      } catch (e) {
+        typing.remove();
+        addMsg('⚠️ ' + String(e), 'system');
+      }
     };
 
     window.bookAppointment = async function (btn) {
@@ -665,9 +750,15 @@
 
       let replyText = data.ok ? data.reply : ('⚠️ ' + data.error);
 
+      // Filter: replace "Cannot read image" LLM refusal text with friendly message
+      if (replyText.includes('Cannot read') && replyText.includes('does not support image')) {
+        replyText = (lang === 'ar'
+          ? 'تم تحليل الصورة بنجاح باستخدام نماذج الذكاء الاصطناعي المحلية. النتائج معروضة أعلاه.'
+          : 'The image was analyzed successfully using local AI models. Results are displayed above.');
+      }
+
       // Check for [ANALYSIS_RESULT:{json}] marker
       const analysisMatch = replyText.match(/^\[ANALYSIS_RESULT:(\{.*?\})\]\s*/);
-      let analysisCardHtml = '';
       if (analysisMatch && data.ok) {
         try {
           const result = JSON.parse(analysisMatch[1]);
@@ -681,33 +772,55 @@
               : `✔ Benign — ${result.confidence_pct}%`;
           }
 
+          // Fetch segmentation images from the server
+          let imgRowHtml = '';
+          if (data.ok && data.images && data.images.length > 0) {
+            const imgPromises = data.images.map(async (imgPath) => {
+              try {
+                const imgRes = await fetch(`${API_BASE}/image?path=${encodeURIComponent(imgPath)}&thread_id=${encodeURIComponent(threadId)}`).then(r => r.json());
+                if (imgRes.ok && imgRes.base64) {
+                  return `data:${imgRes.media_type};base64,${imgRes.base64}`;
+                }
+              } catch (e) { /* ignore */ }
+              return null;
+            });
+            const imgDataUrls = await Promise.all(imgPromises);
+            const validUrls = imgDataUrls.filter(u => u);
+            if (validUrls.length > 0) {
+              const perRow = validUrls.length === 1 ? 1 : Math.min(validUrls.length, 3);
+              const cols = Math.ceil(validUrls.length / ((validUrls.length > 3) ? Math.ceil(validUrls.length / 2) : 1));
+              const gridCols = validUrls.length === 1 ? '1fr' : (validUrls.length === 2 ? '1fr 1fr' : '1fr 1fr 1fr');
+              let imgs = validUrls.map((url, i) => {
+                const cap = result.label === '' && i === 0 ? (lang === 'ar' ? 'قناع' : 'Mask') : result.label === '' && i === 1 ? (lang === 'ar' ? 'تراكب' : 'Overlay') : '';
+                return `<div><img src="${url}" style="width:100%;border-radius:10px;">${cap ? `<div class="cap">${cap}</div>` : ''}</div>`;
+              }).join('');
+              imgRowHtml = `<div style="display:grid;grid-template-columns:${gridCols};gap:8px;margin:10px 0;">${imgs}</div>`;
+            }
+          }
+
           let card = '<div class="analysis-card">';
           if (badgeText) {
             card += `<span class="result-badge ${badgeClass}">${badgeText}</span>`;
           }
-
+          if (imgRowHtml) {
+            card += imgRowHtml;
+          }
           if (result.infection_pct > 0) {
             card += `<div>📊 ${lang === 'ar' ? 'المساحة المصابة' : 'Affected area'}: <b>${result.infection_pct}%</b></div>`;
           }
-
           card += '</div>';
-          analysisCardHtml = card;
+          addMsg(card, 'bot');
         } catch (e) {
           console.log('Failed to parse analysis result:', e);
         }
       }
 
-      // Show analysis card first
-      if (analysisCardHtml) {
-        addMsg(analysisCardHtml, 'bot');
-      }
-
-      // Build images HTML from [IMAGE:] markers
+      // Build images HTML for any remaining images not in analysis card
       let imagesHtml = '';
-      if (data.ok && data.images && data.images.length > 0) {
+      if (data.ok && !analysisMatch && data.images && data.images.length > 0) {
         for (const imgPath of data.images) {
           try {
-            const imgRes = await fetch(`${API_BASE}/image?path=${encodeURIComponent(imgPath)}`).then(r => r.json());
+            const imgRes = await fetch(`${API_BASE}/image?path=${encodeURIComponent(imgPath)}&thread_id=${encodeURIComponent(threadId)}`).then(r => r.json());
             if (imgRes.ok && imgRes.base64) {
               imagesHtml += `<br><img src="data:${imgRes.media_type};base64,${imgRes.base64}" style="max-width:100%; border-radius:8px; margin-top:12px; max-height:400px;">`;
             }

@@ -1,0 +1,30 @@
+[
+  {
+    "filename": "1783457308530_c2f953c4.jpg",
+    "original_name": "ISIC_0024312.jpg",
+    "path": "D:\\python projects\\bot\\NHA-4-128\\dermascan_app\\storage\\patient_images\\06bf622d-2d54-46f8-9109-d1c371b33cb0\\1783457308530_c2f953c4.jpg",
+    "timestamp": 1783457308530,
+    "analysis": {
+      "label": "Malignant",
+      "confidence_pct": 85.97,
+      "infection_pct": 47.29333333333333,
+      "timestamp": 1783457309395
+    },
+    "width": 600,
+    "height": 450
+  },
+  {
+    "filename": "1783457360687_c7bcbf88.jpg",
+    "original_name": "ISIC_0024306.jpg",
+    "path": "D:\\python projects\\bot\\NHA-4-128\\dermascan_app\\storage\\patient_images\\06bf622d-2d54-46f8-9109-d1c371b33cb0\\1783457360687_c7bcbf88.jpg",
+    "timestamp": 1783457360687,
+    "analysis": {
+      "label": "Benign",
+      "confidence_pct": 86.85,
+      "infection_pct": 30.027777777777775,
+      "timestamp": 1783457360928
+    },
+    "width": 600,
+    "height": 450
+  }
+]

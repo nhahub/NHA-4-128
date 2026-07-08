@@ -1,0 +1,16 @@
+[
+  {
+    "filename": "1783468506976_c2f953c4.jpg",
+    "original_name": "ISIC_0024312.jpg",
+    "path": "D:\\python projects\\bot\\NHA-4-128\\dermascan_app\\storage\\patient_images\\7e7d3793-41d7-4e6e-aa32-d82c1d3f1c4e\\1783468506976_c2f953c4.jpg",
+    "timestamp": 1783468506976,
+    "analysis": {
+      "label": "Malignant",
+      "confidence_pct": 85.97,
+      "infection_pct": 47.29333333333333,
+      "timestamp": 1783468509141
+    },
+    "width": 600,
+    "height": 450
+  }
+]
