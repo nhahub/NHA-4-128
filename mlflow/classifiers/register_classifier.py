@@ -26,6 +26,13 @@ params = {
 
 metrics = {}
 
+# Quick sanity check — run a dummy forward pass
+dummy = np.random.randn(1, 224, 224, 3).astype(np.float32)
+pred = model(dummy, training=False)
+metrics["sanity_check"] = 1.0
+metrics["dummy_prediction"] = round(float(pred.numpy().flatten()[0]), 6)
+metrics["model_loaded"] = 1.0
+
 # Evaluate on holdout data if available
 if HOLDOUT_DIR.exists():
     benign_dir = HOLDOUT_DIR / "benign"
@@ -70,11 +77,17 @@ if HOLDOUT_DIR.exists():
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
             f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
-            metrics["holdout_accuracy"] = accuracy
-            metrics["holdout_precision"] = precision
-            metrics["holdout_recall"] = recall
-            metrics["holdout_f1"] = f1
+            metrics["holdout_accuracy"] = round(accuracy, 4)
+            metrics["holdout_precision"] = round(precision, 4)
+            metrics["holdout_recall"] = round(recall, 4)
+            metrics["holdout_f1"] = round(f1, 4)
             metrics["holdout_samples"] = len(data)
+        else:
+            metrics["holdout_found"] = 0.0
+    else:
+        metrics["holdout_found"] = 0.0
+else:
+    metrics["holdout_found"] = 0.0
 
 with mlflow.start_run():
     mlflow.log_params(params)
@@ -82,7 +95,7 @@ with mlflow.start_run():
 
     mlflow.tensorflow.log_model(
         model=model,
-        artifact_path="model",
+        name="model",
         registered_model_name="skin_cancer_classifier",
     )
 
