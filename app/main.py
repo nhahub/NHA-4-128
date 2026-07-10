@@ -33,7 +33,7 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 @app.get("/metrics")
 async def prometheus_metrics(request: Request):
-    return metrics_endpoint(request)
+    return await metrics_endpoint(request)
 
 
 @app.get("/models/status")

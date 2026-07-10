@@ -11,40 +11,17 @@ short_description: FastAPI for skin cancer classification & segmentation
 
 # AI Image Classification & Segmentation API
 
-A FastAPI-based REST API for skin cancer image analysis, featuring classification and segmentation models served via MLflow.
+A FastAPI-based REST API for skin cancer image analysis, featuring classification and segmentation models loaded from Hugging Face Hub.
 
 ## Features
 
-- **Image Classification** — Classify skin lesion images as benign or malignant
-- **Image Segmentation** — Run UNet-based segmentation on classified malignant images
-- **MLflow Integration** — Models are versioned, registered, and served through MLflow
+- **Image Classification** — Classify skin lesion images as benign or malignant (binary sigmoid)
+- **Image Segmentation** — Run segmentation on skin lesion images
 - **Decoupled Endpoints** — Upload, classify, and segment are independent operations
+- **Lazy Model Loading** — Models download from HF Hub on first request, cached in memory
+- **A/B Testing** — Route traffic between classifier model versions
+- **Prometheus Monitoring** — HTTP and inference metrics exposed at `/metrics`
 - **Health Monitoring** — Model status and service health endpoints
-- **MLflow Tracing** — Inference calls are traced with span-level observability
-
-## Project Architecture
-
-```
-Client ──HTTP──→ FastAPI ──huggingface_hub──→ HF Hub Model Repo
-                     │                              │
-                     │                      ┌───────┴───────┐
-                     │                 Classifier Model  Segmenter Model
-                     │                 (SavedModel .zip) (SavedModel .zip)
-                     │
-               Local Storage
-            (storage/images/)
-            (storage/segments/)
-```
-
-**Key Components:**
-
-| Layer | Technology | Purpose |
-|---|---|---|
-| API Server | FastAPI + Uvicorn | HTTP request handling, routing |
-| Model Source | Hugging Face Hub | Model download and caching |
-| ML Runtime | TensorFlow / Keras | Model inference (classifier + UNet) |
-| Storage | Local filesystem | Image and segmentation result persistence |
-| Validation | Pillow | Image integrity checking |
 
 ## Folder Structure
 
@@ -57,36 +34,25 @@ localback/
 │   ├── models.py                 # Pydantic request/response schemas
 │   ├── storage.py                # File I/O for images and results
 │   ├── core/
+│   │   ├── __init__.py           # Core subpackage
 │   │   ├── preprocessing.py      # Image resize, normalization for model input
 │   │   └── validation.py         # Image integrity validation (PIL.verify)
 │   ├── monitoring/
-│   │   ├── metrics.py            # Prometheus metrics (HTTP, inference, GPU)
-│   │   └── gpu.py                # GPU metrics via pynvml
+│   │   ├── __init__.py           # Monitoring subpackage
+│   │   └── metrics.py            # Prometheus metrics (HTTP & inference)
 │   └── services/
+│       ├── __init__.py           # Services subpackage
 │       ├── predictor.py          # Classification inference
 │       ├── segmenter.py          # Segmentation inference
 │       └── routing.py            # A/B testing model router
+├── forproduction/                # Deployment version for HF Spaces (separate)
 ├── storage/                      # Runtime file storage
 │   ├── images/                   # Uploaded images
 │   ├── segments/                 # Segmentation JSON results
-│   └── results/                  # API result index
-├── scripts/                      # Utility scripts
-│   ├── dataset_metadata.py       # Dataset logging utility
-│   ├── log_dataset.py            # Log Kaggle ISIC dataset from Excel
-│   └── validation/
-│       ├── holdout_loader.py     # Load holdout images for validation
-│       ├── validate_classifier.py   # Accuracy/precision/recall/F1 checks
-│       └── validate_segmenter.py    # Segmentation confidence checks
-├── forproduction/                # Hugging Face Spaces deployment config
-│   └── api/
-│       └── README.md             # HF Spaces metadata (YAML frontmatter)
-├── grafana/                      # Pre-built Grafana dashboard
-│   └── dashboard.json
-├── Dockerfile                    # HF Spaces container build
+│   └── results/                  # API result index (results.json)
 ├── requirements.txt              # Python dependencies
-├── .gitattributes                # Git LFS configuration for HF
 ├── README.md                     # This file
-└── .gitignore                    # Git ignore rules
+└── .gitignore                    # (not checked in — local only)
 ```
 
 ## API Overview
@@ -128,7 +94,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Set your Hugging Face token (required for model download)
-export HF_TOKEN="your_hf_token_here"
+set HF_TOKEN=your_hf_token_here
 ```
 
 ### Start the API Server
@@ -140,23 +106,20 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 The API is now available at `http://127.0.0.1:8000`. Interactive docs at `http://127.0.0.1:8000/docs`.
 
-Models are downloaded automatically from Hugging Face Hub on first request and cached locally under `/tmp/savedmodels/`.
+Models are downloaded automatically from Hugging Face Hub on first request and cached locally under `%TMP%\savedmodels\`.
 
 ## Environment Variables
 
-| Variable | Default | Purpose | Location |
-|---|---|---|---|---|
-| `HF_TOKEN` | — | **Required.** Hugging Face token for model access | `app/configs.py:9` |
-| `HF_MODEL_REPO` | `omarelrayes/mlflow-artifacts` | HF Hub repo containing model zips | `app/configs.py:10` |
-| `CLASSIFIER_MODEL_PATH` | `models/classifier_savedmodel.zip` | Path to classifier zip in HF repo | `app/configs.py:11` |
-| `SEGMENTER_MODEL_PATH` | `models/segmenter_savedmodel.zip` | Path to segmenter zip in HF repo | `app/configs.py:12` |
-| `STORAGE_DIR` | `./storage` | File storage root directory | `app/configs.py:86` |
-| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (≥ → malicious) | `app/configs.py:24` |
-| `AB_TESTING_ENABLED` | `false` | Enable A/B testing between model versions | `app/services/routing.py:14` |
-| `AB_TESTING_PERCENT_B` | `50` | % of traffic to route to version B | `app/services/routing.py:15` |
-| `AB_TESTING_MODEL_VERSION_B` | `""` | Model URI for version B | `app/services/routing.py:16` |
-| `HOLDOUT_DATA_DIR` | `holdout_data` | Validation holdout dataset path | `scripts/validation/validate_classifier.py:18` |
-| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold | `app/configs.py:24` |
+| Variable | Default | Description |
+|---|---|---|
+| `HF_TOKEN` | — | **Required.** Hugging Face token for model access |
+| `HF_MODEL_REPO` | `omarelrayes/mlflow-artifacts` | HF Hub repo containing model zips |
+| `CLASSIFIER_MODEL_PATH` | `models/classifier_savedmodel.zip` | Path to classifier zip in HF repo |
+| `SEGMENTER_MODEL_PATH` | `models/segmenter_savedmodel.zip` | Path to segmenter zip in HF repo |
+| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (≥ → malicious) |
+| `AB_TESTING_ENABLED` | `false` | Enable A/B testing between model versions |
+| `AB_CLASSIFIER_B` | — | Alternative model URI for A/B version B |
+| `STORAGE_DIR` | `./storage` | File storage root directory |
 
 ## API Endpoint Documentation
 
@@ -225,7 +188,7 @@ Run classification on a previously uploaded image.
   "image_id": "a1b2c3d4-e5f6-...",
   "prediction": "benign",
   "confidence": 0.987,
-  "model_version": "models:/skin_cancer_classifier/5",
+  "model_version": "hf_savedmodel",
   "status": "completed"
 }
 ```
@@ -366,31 +329,7 @@ storage/
     └── results.json
 ```
 
-**Production recommendations:**
-- Move to S3/GCS/MinIO for durable, scalable storage
-- Implement a retention/TTL policy
-- Add database persistence for result metadata
-
-## Model Loading Process
-
-Models are loaded lazily on first request via MLflow:
-
-```
-Request → get_classification_model() / get_segmentation_model()
-          │
-          ├── Is model cached in memory? → Return cached model
-          │
-          └── No → mlflow.pyfunc.load_model("models:/<name>/<version>")
-                   → Cache in global variable
-                   → Return model
-```
-
-**Model sources:**
-
-| Model | HF Hub Path |
-|---|---|
-| Classifier | `omarelrayes/mlflow-artifacts/models/classifier_savedmodel.zip` |
-| Segmenter | `omarelrayes/mlflow-artifacts/models/segmenter_savedmodel.zip` |
+`results.json` persists classification and segmentation metadata across restarts using a JSON file with thread-safe locking.
 
 ## Model Loading from Hugging Face Hub
 
@@ -473,9 +412,6 @@ The API exposes real-time metrics at `GET /metrics` for Prometheus scraping.
 | `http_request_duration_seconds` | Histogram | `method`, `endpoint` | Request latency distribution |
 | `inference_total` | Counter | `model_type`, `prediction` | Total inference calls |
 | `inference_latency_seconds` | Histogram | `model_type` | Inference latency distribution |
-| `gpu_utilization_percent` | Gauge | — | GPU utilization percentage |
-| `gpu_memory_used_bytes` | Gauge | — | GPU memory used |
-| `gpu_temperature_celsius` | Gauge | — | GPU temperature |
 
 ### Scraping Configuration
 
@@ -491,10 +427,10 @@ scrape_configs:
 
 ### Grafana Dashboard
 
-A pre-built dashboard is available at `grafana/dashboard.json`. Import it into Grafana:
+A pre-built dashboard is available at `forproduction/grafana/dashboard.json`. Import it into Grafana:
 
 1. Open Grafana → **+** → **Import**
-2. Upload `grafana/dashboard.json`
+2. Upload `forproduction/grafana/dashboard.json`
 3. Select the Prometheus data source
 4. Click **Import**
 
@@ -502,17 +438,6 @@ The dashboard includes panels for:
 - HTTP request rate and latency (p50, p95, p99)
 - Inference rate by model type
 - Inference latency percentiles
-- GPU utilization and memory usage
-
-## GPU Metrics
-
-If an NVIDIA GPU is available, the API automatically captures GPU metrics using `pynvml`. Metrics are:
-
-- Collected on each `/metrics` scrape
-- Exported as Prometheus gauges
-- Gracefully degrade to `gpu_available: 0` when no GPU is present
-
-No configuration is needed. The GPU metrics module (`app/monitoring/gpu.py`) uses a lazy initialization pattern — it attempts to connect to the NVIDIA Management Library (`nvml`) on first access and caches the result.
 
 ## Model A/B Testing
 
@@ -523,27 +448,25 @@ The API supports A/B testing between multiple model versions. This allows you to
 | Environment Variable | Default | Description |
 |---|---|---|
 | `AB_TESTING_ENABLED` | `false` | Enable A/B testing |
-| `AB_TESTING_PERCENT_B` | `50` | Percentage of traffic routed to version B |
-| `AB_TESTING_MODEL_VERSION_B` | `""` | Model URI for version B (e.g., `models:/skin_cancer_classifier/2`) |
+| `AB_CLASSIFIER_B` | — | Alternative model URI for version B (e.g., `some_other_model`) |
 
 ### How It Works
 
 1. **Explicit version selection** — Pass `model_version` in the classify request body to use a specific version
-2. **Automatic routing** — When no version is specified and A/B testing is enabled, traffic is split based on `AB_TESTING_PERCENT_B`
+2. **Automatic routing** — When no version is specified and A/B testing is enabled, traffic is randomly split between the default classifier and `AB_CLASSIFIER_B`
 3. **Result tracking** — The `model_version` field in the response shows which version handled each request
 
 ### Example
 
 ```bash
-# A/B testing enabled — 50% of traffic goes to version 2
-export AB_TESTING_ENABLED=true
-export AB_TESTING_PERCENT_B=50
-export AB_TESTING_MODEL_VERSION_B="models:/skin_cancer_classifier/2"
+# A/B testing enabled — random split between default and version B
+set AB_TESTING_ENABLED=true
+set AB_CLASSIFIER_B=some_other_model
 
-# Explicitly use version 2 for a specific request
+# Explicitly use a specific version
 curl -X POST http://127.0.0.1:8000/api/classify \
   -H "Content-Type: application/json" \
-  -d '{"image_id": "IMAGE_ID", "model_version": "models:/skin_cancer_classifier/2"}'
+  -d '{"image_id": "IMAGE_ID", "model_version": "hf_savedmodel"}'
 ```
 
 ### Check A/B Status
@@ -556,9 +479,9 @@ Response:
 ```json
 {
   "enabled": true,
-  "version_a": "models:/skin_cancer_classifier/1",
-  "version_b": "models:/skin_cancer_classifier/2",
-  "percent_b": 50
+  "classifier_a": "hf_savedmodel",
+  "classifier_b": "some_other_model",
+  "segmenter": "hf_savedmodel"
 }
 ```
 
@@ -566,9 +489,8 @@ Response:
 
 ### Prerequisites for Testing
 
-- MLflow server running on `127.0.0.1:5000`
-- Both models registered (`skin_cancer_classifier`, `skin_cancer_segmenter`)
 - API server running on `127.0.0.1:8000`
+- `HF_TOKEN` set with access to the model repository
 
 ### Test with curl
 
@@ -624,21 +546,6 @@ resp = requests.post(
 print(resp.json())
 ```
 
-## Running with Docker
-
-```bash
-# Build the image
-docker build -t skin-cancer-api .
-
-# Run (HF Spaces uses port 7860)
-docker run -p 7860:7860 -e HF_TOKEN=your_token_here skin-cancer-api
-```
-
-**Note:** Storage directories are ephemeral inside the container. For local development, mount a volume:
-```bash
-docker run -p 7860:7860 -v ./storage:/app/storage -e HF_TOKEN=your_token_here skin-cancer-api
-```
-
 ## Troubleshooting
 
 ### "ImportError: attempted relative import with no known parent package"
@@ -669,103 +576,17 @@ On Hugging Face Spaces, set this in the Space **Settings → Repository Secrets*
 
 Ensure `HF_TOKEN` has access to the model repository. Verify the repo ID and model paths:
 ```bash
-export HF_MODEL_REPO="omarelrayes/mlflow-artifacts"
-export CLASSIFIER_MODEL_PATH="models/classifier_savedmodel.zip"
+set HF_MODEL_REPO=omarelrayes/mlflow-artifacts
+set CLASSIFIER_MODEL_PATH=models/classifier_savedmodel.zip
 ```
 
 ### "Storage paths are wrong"
 
 Ensure you start the server from the project root directory so that `storage/` resolves correctly.
 
-## Hugging Face Spaces Deployment
-
-### Architecture
-
-The API is deployed as a **Docker Space** on Hugging Face Spaces. Models are stored on HF Hub as zip archives and downloaded at runtime.
-
-```
-User → HF Spaces (Docker) → FastAPI → HF Hub (model zips)
-                                     → /tmp/savedmodels/ (cached)
-                                     → /app/storage/ (ephemeral)
-```
-
-### Required Secrets
-
-| Secret | Description |
-|---|---|
-| `HF_TOKEN` | Hugging Face token with read access to the model repository |
-
-Set these in your Space: **Settings → Repository Secrets → New secret**.
-
-### Build Process
-
-1. HF Spaces builds the Docker image using the `Dockerfile`
-2. `pip install -r requirements.txt` installs dependencies
-3. On first request, models download from HF Hub and cache in `/tmp/savedmodels/`
-
-### Persistent vs Ephemeral Storage
-
-| Path | Type | Behavior |
-|---|---|---|
-| `/app/storage/` | Ephemeral | Lost on Space restart |
-| `/tmp/savedmodels/` | Ephemeral | Lost on Space restart; re-downloaded |
-| `/tmp/hf_cache/` | Ephemeral | HF Hub cache |
-
-**Do not rely on uploaded images persisting** across Space restarts. The space restarts after 48 hours of inactivity (free tier) or on redeployment.
-
-### Startup Command
-
-Defined in `Dockerfile`:
-```dockerfile
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
-```
-
-HF Spaces uses port `7860` by default.
-
-### Updating the Deployed Application
-
-1. Push changes to the HF Space git repository
-2. HF automatically rebuilds the Docker image
-3. The Space restarts with the new code
-4. Models re-download on first request (cached in `/tmp/`)
-
-### Files for HF Spaces Repository
-
-**Upload:**
-- `app/` — Application source code
-- `Dockerfile` — Container build instructions
-- `requirements.txt` — Python dependencies
-- `.gitattributes` — Git LFS configuration
-- `.gitignore` — Ignore rules
-- `README.md` — Space metadata + documentation
-- `storage/` — Directory structure (with `.gitkeep` files)
-
-**Do NOT upload:**
-- `venv/` — Local virtual environment
-- `mlflow/` — Local MLflow database and artifacts
-- `__pycache__/` — Python cache
-- `.vscode/` — IDE configuration
-- `*.keras`, `*.h5`, `*.pkl` — Model files (not needed, models are on HF Hub)
-- `data.xlsx` — Local dataset file
-- `.ipynb_checkpoints/` — Jupyter notebook checkpoints
-- `grafana/` — Grafana dashboard (for local monitoring only)
-
-### Known Limitations
-
-| Limitation | Impact |
-|---|---|
-| 16 GB disk (free tier) | Sufficient for model caches + images |
-| 2 vCPU + 16 GB RAM (free) | Adequate for inference |
-| 48h inactivity timeout | Space sleeps; restarts on next request (cold start ≈ 30s) |
-| No GPU (free tier) | CPU inference only; ~200-500ms per classification |
-| Ephemeral storage | Uploaded images lost on restart |
-| No background tasks | Long segmentation blocks the request |
-
 ## Future Improvements
 
-- [x] Hugging Face Spaces deployment
 - [x] Prometheus metrics + monitoring
-- [x] GPU utilization monitoring (falls back gracefully)
 - [x] Model A/B testing framework
 - [x] Model download from HF Hub with caching
 - [ ] Replace JSON result store with SQLite/PostgreSQL
