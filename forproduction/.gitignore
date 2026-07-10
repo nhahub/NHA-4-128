@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+storage/images/*
+storage/segments/*
+storage/results/*
+!storage/images/.gitkeep
+!storage/segments/.gitkeep
+!storage/results/.gitkeep
+models/
+*.h5
+*.keras
+.env

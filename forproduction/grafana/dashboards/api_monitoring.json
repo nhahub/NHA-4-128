@@ -1,0 +1,15 @@
+{
+  "title": "API Monitoring",
+  "panels": [
+    {
+      "title": "Prediction Rate",
+      "type": "graph",
+      "targets": [{ "expr": "rate(predictions_total[5m])" }]
+    },
+    {
+      "title": "Latency",
+      "type": "graph",
+      "targets": [{ "expr": "rate(prediction_latency_seconds_sum[5m])" }]
+    }
+  ]
+}
