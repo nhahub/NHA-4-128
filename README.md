@@ -335,31 +335,40 @@ storage/
 
 The project uses **MLflow** for experiment tracking and model registry. The "old" classic workflow uses a local MLflow server.
 
-### Start the MLflow Tracking Server
+### Start the MLflow Tracking Server (from project root)
 
 ```bash
-# Start MLflow UI on port 5000 with the local artifact store
-mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts
+# Windows: --workers 1 avoids multiprocessing crash
+mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts --workers 1
+```
+
+Or run from inside `mlflow/`:
+
+```bash
+cd mlflow
+mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./artifacts --workers 1
 ```
 
 Open `http://127.0.0.1:5000` in your browser.
 
 ### Register a Model
 
-The scripts in `mlflow/classifiers/` and `mlflow/segmenters/` log and register Keras models:
+Run from the **project root**:
 
 ```bash
-# Register classifier
+# Register classifier (logs accuracy, precision, recall, F1 on holdout data)
 python mlflow/classifiers/register_classifier.py
 
-# Register segmenter
+# Register segmenter (logs output validation metrics)
 python mlflow/segmenters/register_segmenter.py
 ```
 
 Each script:
 1. Loads the `.keras` model from `mlflow/models/`
-2. Logs it as an MLflow run via `mlflow.tensorflow.log_model()`
-3. Registers the model in the Model Registry
+2. Logs model parameters (architecture, input shape, framework)
+3. Evaluates against holdout data and logs metrics (accuracy, precision, recall, F1)
+4. Logs the model via `mlflow.tensorflow.log_model()`
+5. Registers the model in the Model Registry
 
 ### View Registered Models
 
