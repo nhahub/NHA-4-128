@@ -94,7 +94,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # Set your Hugging Face token (required for model download)
-set HF_TOKEN=your_hf_token_here
+
 ```
 
 ### Start the API Server
@@ -330,6 +330,52 @@ storage/
 ```
 
 `results.json` persists classification and segmentation metadata across restarts using a JSON file with thread-safe locking.
+
+## MLflow Tracking
+
+The project uses **MLflow** for experiment tracking and model registry. The "old" classic workflow uses a local MLflow server.
+
+### Start the MLflow Tracking Server
+
+```bash
+# Start MLflow UI on port 5000 with the local artifact store
+mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts
+```
+
+Open `http://127.0.0.1:5000` in your browser.
+
+### Register a Model
+
+The scripts in `mlflow/classifiers/` and `mlflow/segmenters/` log and register Keras models:
+
+```bash
+# Register classifier
+python mlflow/classifiers/register_classifier.py
+
+# Register segmenter
+python mlflow/segmenters/register_segmenter.py
+```
+
+Each script:
+1. Loads the `.keras` model from `mlflow/models/`
+2. Logs it as an MLflow run via `mlflow.tensorflow.log_model()`
+3. Registers the model in the Model Registry
+
+### View Registered Models
+
+After registering, models appear in the MLflow UI under the **Models** tab or query via CLI:
+
+```bash
+mlflow models list
+```
+
+### Tracking URI
+
+The scripts connect to `http://127.0.0.1:5000` by default. To use a different tracking server:
+
+```bash
+export MLFLOW_TRACKING_URI=http://your-server:5000
+```
 
 ## Model Loading from Hugging Face Hub
 
