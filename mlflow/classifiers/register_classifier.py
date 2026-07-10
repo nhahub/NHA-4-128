@@ -9,7 +9,7 @@ MODEL_PATH = BASE_DIR / "mlflow" / "models" / "skin_cancer_detection_final.keras
 HOLDOUT_DIR = BASE_DIR / "holdout_data"
 
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("skin_cancer_experiment_v2")
+mlflow.set_experiment("classifier_experiment")
 
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"Model not found: {MODEL_PATH}")

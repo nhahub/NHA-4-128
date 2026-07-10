@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 MODEL_PATH = BASE_DIR / "mlflow" / "models" / "UNet_model.keras"
 
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("skin_cancer_experiment_v2")
+mlflow.set_experiment("segmenter_experiment")
 
 if not MODEL_PATH.exists():
     raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
