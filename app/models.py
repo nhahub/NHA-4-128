@@ -1,16 +1,37 @@
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime
 
-class PredictionResponse(BaseModel):
-    request_id: str
+
+class UploadResponse(BaseModel):
+    image_id: str
     filename: str
-    image_path: str
+    size_bytes: int
+    content_type: str
+    uploaded_at: str
+    url: str
+
+
+class ClassifyRequest(BaseModel):
+    image_id: str
+    model_version: Optional[str] = None
+
+
+class ClassifyResponse(BaseModel):
+    image_id: str
     prediction: str
     confidence: float
     model_version: str
     status: str = "completed"
 
-class HistoryItem(PredictionResponse):
-    timestamp: str
-    segmentation_path: Optional[str] = None
+
+class SegmentRequest(BaseModel):
+    image_id: str
+
+
+class SegmentResponse(BaseModel):
+    image_id: str
+    status: str
+    masks_shape: Optional[list] = None
+    max_confidence: Optional[float] = None
+    result_url: Optional[str] = None
+    error: Optional[str] = None

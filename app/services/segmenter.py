@@ -1,55 +1,50 @@
-import asyncio
+import time
 import numpy as np
-from datetime import datetime
+import tensorflow as tf
 from typing import Dict, Any
 from app.configs import get_segmentation_model
-from app.storage import save_segmentation_result, update_history
 from app.core.preprocessing import preprocess_image
+from app.monitoring.metrics import inference_total, inference_latency_seconds
 
 
-async def run_segmentation(request_id: str, image_filename: str, image_path: str):
-    print(f" SEGMENTING {request_id}.......")
+def segment_image(file_bytes: bytes) -> Dict[str, Any]:
+    start_time = time.time()
 
-    await asyncio.sleep(1)
+    result: Dict[str, Any] = {"detections": []}
 
-    seg_result: Dict[str, Any] = {
-        "request_id": request_id,
-        "image_filename": image_filename,
-        "timestamp": datetime.now().isoformat(),
-        "detections": []
-    }
-
-    # model loading in updated way !!!!!!
     model = get_segmentation_model()
 
     if model is None:
-        seg_result["error"] = "Segmentation model not loaded"
+        result["error"] = "Segmentation model not loaded"
+        result["status"] = "failed"
+        return result
 
-    else:
-        try:
-            with open(image_path, "rb") as f:
-                img_bytes = f.read()
+    try:
+        img_array = preprocess_image(file_bytes, target_size=(128, 128))
 
-            img_array = preprocess_image(img_bytes, target_size=(256, 256))
+        pred_result = model(tf.constant(img_array))
+        if isinstance(pred_result, dict):
+            masks = list(pred_result.values())[0].numpy()
+        else:
+            masks = pred_result.numpy()
 
-            # prediction using the function of it
-            masks = model.predict(img_array)
+        max_conf = float(np.max(masks))
 
-            seg_result.update({
-                "model_used": True,
-                "masks_shape": list(masks.shape),
-                "max_confidence": float(np.max(masks))
-            })
+        result.update({
+            "status": "completed",
+            "masks_shape": list(masks.shape),
+            "max_confidence": max_conf,
+        })
 
-        except Exception as e:
-            seg_result["error"] = str(e)
+        latency = time.time() - start_time
 
-    seg_path = save_segmentation_result(seg_result, request_id, image_filename)
+        print(f"SEGMENTATION: {result['masks_shape']} max_conf={max_conf:.3f} in {latency:.2f}s")
 
-    update_history(
-        request_id,
-        segmentation_path=seg_path,
-        status="segmented"
-    )
+        inference_total.labels(model_type="segmenter", prediction="completed").inc()
+        inference_latency_seconds.labels(model_type="segmenter").observe(latency)
 
-    print(f"✅ SEGMENTATION DONE {request_id}")
+    except Exception as e:
+        result["error"] = str(e)
+        result["status"] = "failed"
+
+    return result
