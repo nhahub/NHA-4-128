@@ -1,235 +1,653 @@
-# DermaScan AI
+# AI Image Classification & Segmentation API
 
-An AI-powered dermatology assistant that analyzes skin lesion images and provides role-aware
-clinical support — one experience for **doctors**, another for **patients** — backed by a real
-clinical dataset (1,000 patients, 8 diagnosis categories, 100 families) and a RAG-based chat agent.
+A FastAPI-based REST API for skin cancer image analysis, featuring classification and segmentation models.
 
----
+## Features
 
-## ✨ Features
+- **Image Classification** — Classify skin lesion images as benign or malignant (binary sigmoid)
+- **Image Segmentation** — Run segmentation on skin lesion images
+- **Decoupled Endpoints** — Upload, classify, and segment are independent operations
+- **Lazy Model Loading** — Models loaded on first request, cached in memory
+- **A/B Testing** — Route traffic between classifier model versions
+- **Prometheus Monitoring** — HTTP and inference metrics exposed at `/metrics`
+- **Health Monitoring** — Model status and service health endpoints
 
-**Doctor mode**
-- Upload a lesion image → automatic match against the registered patient database
-- Combined report: current image analysis (shape/label/confidence) merged with the patient's
-  hereditary and family risk record
-- Register unmatched images against a patient ID for future recognition
-- Direct chat lookups: `"Show me patient P0042"`, `"family F001"`, dataset-wide statistics
-- Full access to genetics, mutation distribution, and high-risk family rankings
-
-**Patient mode**
-- Simple, jargon-free result after image upload (Benign/Malignant + affected area %)
-- Automatic booking priority score (routine / urgent / emergency)
-- One-click appointment booking — date/time, doctor, room, and nearest clinic
-- General Q&A on skin care, prevention, and monitoring from a trusted knowledge base
-- No access to other patients' data (enforced server-side, not just by prompt)
-
-**Under the hood**
-- Dual image analysis: a CNN classifier (Benign/Malignant) + a U-Net segmentation model
-  (affected area mask)
-- RAG-based LLM agent (LangGraph ReAct agent) grounded in a markdown knowledge base via FAISS
-- Conversation history is trimmed before each LLM call to control token usage and avoid
-  drifting/repeated replies
-- Primary + fallback model pair sharing one conversation memory, so a rate-limit switch
-  doesn't lose context
-
----
-
-## 🏗️ Architecture
+## Folder Structure
 
 ```
-                ┌──────────────┐
-   Image ──────▶│  CNN (.keras) │──▶ label + confidence
-                └──────────────┘
-                ┌──────────────┐
-   Image ──────▶│ U-Net (.keras)│──▶ segmentation mask + affected area %
-                └──────────────┘
-                        │
-          ┌─────────────┴─────────────┐
-          ▼                           ▼
-   Doctor: match vs.            Patient: booking
-   patient DB + genetic          priority score
-   record → merged report        → booking button
-          │
-          ▼
-   Chat (FastAPI /chat) ──▶ LangGraph ReAct Agent ──▶ tools:
-                              • search_knowledge_base (FAISS + embeddings)
-                              • lookup_patient (doctor-only, Excel dataset)
+localback/
+├── app/                          # Application package
+│   ├── __init__.py               # Package exports
+│   ├── main.py                   # FastAPI app, routes, server entry point
+│   ├── configs.py                # Model loading, storage paths
+│   ├── models.py                 # Pydantic request/response schemas
+│   ├── storage.py                # File I/O for images and results
+│   ├── core/
+│   │   ├── __init__.py           # Core subpackage
+│   │   ├── preprocessing.py      # Image resize, normalization for model input
+│   │   └── validation.py         # Image integrity validation (PIL.verify)
+│   ├── monitoring/
+│   │   ├── __init__.py           # Monitoring subpackage
+│   │   └── metrics.py            # Prometheus metrics (HTTP & inference)
+│   └── services/
+│       ├── __init__.py           # Services subpackage
+│       ├── predictor.py          # Classification inference
+│       ├── segmenter.py          # Segmentation inference
+│       └── routing.py            # A/B testing model router
+├── mlflow/                       # MLflow tracking data & scripts
+├── storage/                      # Runtime file storage
+│   ├── images/                   # Uploaded images
+│   ├── segments/                 # Segmentation JSON results
+│   └── results/                  # API result index (results.json)
+├── requirements.txt              # Python dependencies
+└── README.md                     # This file
 ```
 
-**Stack:** FastAPI · TensorFlow/Keras (CNN + U-Net) · LangGraph · LangChain · FAISS ·
-HuggingFace sentence-transformers · Groq (LLM inference) · Pandas/OpenPyXL · OpenCV/Pillow
+## API Overview
 
----
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/` | Service root — model status & info |
+| GET | `/health` | Health check — service & model availability |
+| GET | `/metrics` | Prometheus metrics endpoint |
+| GET | `/models/status` | Detailed model load status |
+| GET | `/api/ab-status` | A/B testing configuration status |
+| POST | `/api/upload` | Upload an image, returns `image_id` |
+| POST | `/api/classify` | Classify by `image_id` |
+| GET | `/api/classify/{image_id}` | Get stored classification result |
+| POST | `/api/segment` | Segment by `image_id` |
+| GET | `/api/segment/{image_id}` | Get stored segmentation result |
+| GET | `/api/images/{image_id}` | Retrieve uploaded image |
 
-## 📁 Project Structure
+## Installation
 
-```
-dermascan/
-├── main.py                    # FastAPI app: endpoints, session state, image pipeline
-├── agent.py                   # LangGraph agent, tools, patient/family report builder
-├── rag.py                     # Knowledge base loader + FAISS vectorstore builder
-├── image_registry.py          # MobileNetV2-based image similarity matching for doctor mode
-├── build_kb.py                # (legacy/manual) standalone KB builder — NOT used by the running app
-│
-├── skin_cancer_detection_final.keras   # Classification model (not committed — see below)
-├── UNet_model.keras                    # Segmentation model (not committed — see below)
-│
-├── data/
-│   ├── kb/
-│   │   └── knowledge_base.md           # Consolidated clinical knowledge base (RAG source)
-│   ├── updated_file_2.xlsx             # Core dataset: Patients / Summary / Family_Relationships
-│   ├── five_sample_patients_with_features.xlsx  # Feature vectors for image-matching demo
-│   └── extract_global_features.py       # Extract global features from Patient images.
-|   └── image_registry.json              # (generated) registered image ↔ patient ID links
-│
-├── static/
-│   └── index.html             # Frontend chat UI (served at the API's root)
-│
-├── .faiss/                    # (generated) cached FAISS index — safe to delete, rebuilds on boot
-├── .env                       # API keys (not committed)
-└── requirements.txt / pyproject.toml
-```
+### Prerequisites
 
-### Key files explained
+- Python 3.11+
+- TensorFlow-compatible hardware (CPU is sufficient for development)
 
-| File | Responsibility |
-|---|---|
-| `main.py` | FastAPI routes (`/set-role`, `/analyze-image`, `/register-image`, `/book-appointment`, `/chat`, `/health`), runs the CNN + U-Net inference pipeline, manages per-thread session state (role, last analysis) |
-| `agent.py` | Builds the LangGraph ReAct agent, defines its two tools (`search_knowledge_base`, `lookup_patient`), the booking helper (`book_appointment`), the booking-priority formula (`compute_booking_priority`), and `build_medical_report()` — the function that merges live image analysis with a patient's genetic/family record into one report |
-| `rag.py` | Loads all `.md` files under `data/kb/`, chunks them, embeds them (`sentence-transformers/all-MiniLM-L6-v2`), and builds/caches a FAISS vectorstore |
-| `image_registry.py` | Extracts global image features with MobileNetV2 and cosine-matches an uploaded photo against previously registered patient images |
-| `build_kb.py` | A standalone, manual knowledge-base builder kept for reference — **the running server does not call this file**; `rag.py` builds/loads the vectorstore automatically on startup |
-| `static/index.html` | Single-page chat UI: role selection, image upload, analysis cards, booking flow |
+### Setup
 
----
-
-## ⚙️ Setup
-
-### Requirements
-- Python 3.10+
-- A Groq API key ([console.groq.com/keys](https://console.groq.com/keys))
-- The two `.keras` model files and `data/five_sample_patients_with_features.xlsx` placed locally (see **Data & Models** below — these are intentionally not committed to the repo)
-
-### Option A — pip + requirements.txt
 ```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\Activate.ps1
-# macOS/Linux
-source .venv/bin/activate
+# Clone the repository
+git clone <repo-url>
+cd localback
 
+# Create and activate virtual environment (Windows)
+python -m venv venv
+venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-`requirements.txt` should include, at minimum:
-```
-fastapi
-uvicorn[standard]
-python-multipart
-pydantic
-tensorflow
-opencv-python
-pillow
-numpy
-pandas
-openpyxl
-scikit-learn
-langchain-core
-langchain-groq
-langgraph
-langchain-community
-langchain-huggingface
-langchain-text-splitters
-faiss-cpu
-sentence-transformers
-python-dotenv
-```
-
-### Option B — uv + pyproject.toml
-```bash
-uv init --no-readme
-uv add fastapi "uvicorn[standard]" python-multipart pydantic tensorflow opencv-python \
-       pillow numpy pandas openpyxl scikit-learn langchain-core langchain-groq langgraph \
-       langchain-community langchain-huggingface langchain-text-splitters faiss-cpu \
-       sentence-transformers python-dotenv
-
-uv sync
-```
-Then run everything through `uv run` (see below), or activate `uv`'s virtualenv the same way as Option A.
-
-### Environment variables (`.env`)
-```
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### Data & models (not committed — see `.gitignore`)
-Place these locally before first run:
-- `skin_cancer_detection_final.keras`, `UNet_model.keras` — in the project root
-- `data/updated_file_2.xlsx` — the 1,000-patient clinical dataset
-- `data/five_sample_patients_with_features.xlsx` — sample feature vectors for image matching
-- `data/kb/knowledge_base.md` — already tracked in the repo; delete `.faiss/` if you edit it, so it rebuilds
-
----
-
-## ▶️ Running
+### Start the API Server
 
 ```bash
-uvicorn main:app --reload --port 8000
-```
-or, with uv:
-```bash
-uv run uvicorn main:app --reload --port 8000
+# From the project root
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Then open **http://127.0.0.1:8000** — the API serves the chat UI directly from `static/`.
+The API is now available at `http://127.0.0.1:8000`. Interactive docs at `http://127.0.0.1:8000/docs`.
 
-First boot will build the FAISS index from `data/kb/*.md` (cached afterward in `.faiss/`) and
-load both the primary and fallback LLM agents — this can take a little while the first time.
+## Environment Variables
 
-Check readiness anytime at:
-```
-GET http://127.0.0.1:8000/health
-```
-
----
-
-## 🔌 API Reference
-
-| Endpoint | Method | Purpose |
+| Variable | Default | Description |
 |---|---|---|
-| `/set-role` | POST | Lock a session to `"doctor"` or `"patient"` |
-| `/analyze-image` | POST | Run classification + segmentation; doctor gets a matched/merged report, patient gets a booking priority score |
-| `/register-image` | POST | Link an uploaded image to a patient ID (doctor only) |
-| `/book-appointment` | POST | Book a real appointment from the last analysis's severity score |
-| `/chat` | POST | Send a message to the LLM agent (role-aware, tool-using) |
-| `/health` | GET | Model/agent readiness check |
+| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (>= malicious) |
+| `AB_TESTING_ENABLED` | `false` | Enable A/B testing between model versions |
+| `AB_CLASSIFIER_B` | — | Alternative model URI for A/B version B |
+| `STORAGE_DIR` | `./storage` | File storage root directory |
+
+## API Endpoint Documentation
+
+### POST `/api/upload`
+
+Upload an image file. Returns an `image_id` used for subsequent classification and segmentation requests.
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `file` | UploadFile | Yes | Image file (JPEG, PNG) — max 10 MB |
+
+**Response 201: `UploadResponse`**
+
+```json
+{
+  "image_id": "a1b2c3d4-e5f6-...",
+  "filename": "lesion.jpg",
+  "size_bytes": 123456,
+  "content_type": "image/jpeg",
+  "uploaded_at": "2026-07-09T03:50:00",
+  "url": "/api/images/a1b2c3d4-e5f6-..."
+}
+```
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 400 | File too large (>10 MB) |
+| 400 | Unsupported content type |
 
 ---
 
-## 🧠 Notes on the Chat Agent
+### GET `/api/images/{image_id}`
 
-- Only two tools are exposed to the LLM by design: `search_knowledge_base` and `lookup_patient`.
-  Booking and image analysis are **not** LLM tools — they're deterministic backend logic
-  triggered by UI buttons, so the model can never "decide" to book or diagnose on its own.
-- Conversation history sent to the model is trimmed to the last ~12 messages per call
-  (`_trim_history` in `agent.py`) to keep token usage bounded on long conversations.
-- The primary and fallback models share one `MemorySaver` checkpoint, so switching models
-  mid-conversation (on a rate limit) doesn't lose context.
-- Groq's `llama-3.3-70b-versatile` / `llama-3.1-8b-instant` are deprecated (shutdown
-  **Aug 16, 2026**); this project runs on `openai/gpt-oss-120b` / `openai/gpt-oss-20b` instead.
+Retrieve an uploaded image by its ID.
 
----
+| Parameter | Type | Description |
+|---|---|---|
+| `image_id` | Path (string) | UUID from upload response |
 
-## 🗺️ Roadmap / Known Limitations
+**Response 200:** Raw image bytes with correct `Content-Type` header
 
-- Clinic and appointment data (`DEFAULT_CLINIC`, `CLINICS_BY_CITY`) are demo placeholders —
-  not yet wired to a real hospital booking system or maps service
-- Image-to-patient matching relies on a small sample feature set
-  (`five_sample_patients_with_features.xlsx`), separate from the main clinical dataset
-- CORS is wide open (`allow_origins=["*"]`) for local development — tighten before production
+**Response 404:** Image not found
 
 ---
 
-## 👤 Author
+### POST `/api/classify`
 
-Built by **DERMASCAN TEAM**
+Run classification on a previously uploaded image.
+
+**Request body: `ClassifyRequest`**
+
+```json
+{
+  "image_id": "a1b2c3d4-e5f6-..."
+}
+```
+
+**Response 200: `ClassifyResponse`**
+
+```json
+{
+  "image_id": "a1b2c3d4-e5f6-...",
+  "prediction": "benign",
+  "confidence": 0.987,
+  "model_version": "default",
+  "status": "completed"
+}
+```
+
+> **Prediction logic:** The model outputs a single sigmoid value (0-1). The class is determined by `CLASSIFIER_THRESHOLD` (default 0.5):
+> `malicious` if confidence >= 0.5, else `benign`.
+
+**Response 404:** Image not found
+
+**Errors:**
+
+| Status | Condition |
+|---|---|
+| 400 | Invalid image format |
+| 500 | Model prediction failure |
+
+Results are cached — re-classifying the same `image_id` returns the stored result.
+
+---
+
+### GET `/api/classify/{image_id}`
+
+Retrieve a previously computed classification result.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `image_id` | Path (string) | UUID from upload response |
+
+**Response 200:** `ClassifyResponse` (same schema as POST)
+
+**Response 404:** Classification result not found
+
+---
+
+### POST `/api/segment`
+
+Run segmentation on a previously uploaded image.
+
+**Request body: `SegmentRequest`**
+
+```json
+{
+  "image_id": "a1b2c3d4-e5f6-..."
+}
+```
+
+**Response 200: `SegmentResponse`**
+
+```json
+{
+  "image_id": "a1b2c3d4-e5f6-...",
+  "status": "completed",
+  "masks_shape": [1, 256, 256, 1],
+  "max_confidence": 0.95,
+  "result_url": "storage/segments/a1b2c3d4-e5f6-_segment.json",
+  "error": null
+}
+```
+
+Results are cached — re-segmenting the same `image_id` returns the stored result.
+
+---
+
+### GET `/api/segment/{image_id}`
+
+Retrieve a previously computed segmentation result.
+
+**Response 200:** `SegmentResponse` (same schema as POST)
+
+**Response 404:** Segmentation result not found
+
+---
+
+### GET `/health`
+
+**Response 200:**
+
+```json
+{
+  "status": "healthy",
+  "predict_ready": true
+}
+```
+
+---
+
+### GET `/models/status`
+
+**Response 200:**
+
+```json
+{
+  "classification_loaded": true,
+  "segmentation_loaded": true,
+  "storage_paths": {
+    "images": "storage/images",
+    "segments": "storage/segments"
+  }
+}
+```
+
+---
+
+### GET `/`
+
+**Response 200:**
+
+```json
+{
+  "service": "AI Image Classification API",
+  "version": "3.1.0",
+  "classification": "READY",
+  "segmentation": "READY",
+    "endpoints": {
+      "upload": "POST /api/upload",
+      "classify": "POST /api/classify",
+      "segment": "POST /api/segment",
+      "health": "GET /health",
+      "metrics": "GET /metrics",
+      "ab_status": "GET /api/ab-status",
+      "docs": "/docs"
+    },
+    "models_status": "/models/status"
+}
+```
+
+## Full API Reference
+
+### Pydantic Schemas
+
+All request/response models are defined in `app/models.py`:
+
+**`ClassifyRequest`**
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image_id` | `str` (UUID) | Yes | — | Image identifier returned by upload |
+| `model_version` | `Optional[str]` | No | `null` | Explicit model version/URI; if omitted, uses default or A/B routing |
+
+**`ClassifyResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` | The input image ID |
+| `prediction` | `str` | `"benign"` or `"malicious"` (based on sigmoid threshold) |
+| `confidence` | `float` | Sigmoid output (0–1) |
+| `model_version` | `str` | Model version that served the request |
+| `status` | `str` | Always `"completed"` |
+
+**`SegmentRequest`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `image_id` | `str` (UUID) | Yes | Image identifier from upload |
+
+**`SegmentResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` | The input image ID |
+| `status` | `str` | `"completed"` or error status |
+| `masks_shape` | `Optional[list]` | Shape of output mask array, e.g. `[1, 256, 256, 1]` |
+| `max_confidence` | `Optional[float]` | Maximum pixel-wise confidence in mask |
+| `result_url` | `Optional[str]` | Relative path to segmentation JSON artifact |
+| `error` | `Optional[str]` | Error message if segmentation failed |
+
+**`UploadResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` (UUID v4) | Generated unique image identifier |
+| `filename` | `str` | Original uploaded filename |
+| `size_bytes` | `int` | File size in bytes |
+| `content_type` | `str` | MIME type (`image/jpeg` or `image/png`) |
+| `uploaded_at` | `str` | ISO 8601 timestamp |
+| `url` | `str` | Relative URL to retrieve the image |
+
+### End-to-End Data Flow
+
+```
+Client                    API Server                    Disk/Filesystem
+  │                          │                              │
+  │   POST /api/upload       │                              │
+  │   (multipart image) ────►│                              │
+  │                          │  validate type + size        │
+  │                          │  generate UUID v4            │
+  │                          │  write bytes ───────────────►│  storage/images/<id>.ext
+  │   ◄──── UploadResponse   │                              │
+  │                          │                              │
+  │   POST /api/classify     │                              │
+  │   {"image_id": "..."} ──►│                              │
+  │                          │  read image bytes ──────────►│  storage/images/<id>.ext
+  │                          │  check existing result ─────►│  storage/results/results.json
+  │                          │  [cache hit] ──── return     │
+  │                          │  [cache miss]                │
+  │                          │  lazy-load model (once)      │
+  │                          │  preprocess (resize, norm)   │
+  │                          │  inference (sigmoid score)   │
+  │                          │  save result ───────────────►│  storage/results/results.json
+  │   ◄──── ClassifyResponse │                              │
+  │                          │                              │
+  │   POST /api/segment      │                              │
+  │   {"image_id": "..."} ──►│                              │
+  │                          │  read image bytes ──────────►│  storage/images/<id>.ext
+  │                          │  check existing result ─────►│  storage/results/results.json
+  │                          │  [cache hit] ──── return     │
+  │                          │  [cache miss]                │
+  │                          │  lazy-load model (once)      │
+  │                          │  inference (mask array)      │
+  │                          │  save result ───────────────►│  storage/segments/<id>_segment.json
+  │                          │  index result ──────────────►│  storage/results/results.json
+  │   ◄──── SegmentResponse  │                              │
+  │                          │                              │
+  │   GET /api/images/<id>   │                              │
+  │   ──────────────────────►│  read bytes ────────────────►│  storage/images/<id>.ext
+  │   ◄──── raw image bytes  │                              │
+```
+
+### Validation & Error Codes
+
+| Status | Code | Condition | Source |
+|---|---|---|---|
+| **400** | `UNSUPPORTED_CONTENT_TYPE` | Uploaded file is not JPEG/PNG | `main.py:64` |
+| **400** | `FILE_TOO_LARGE` | File exceeds 10 MB limit | `main.py:71` |
+| **400** | `INVALID_IMAGE_FORMAT` | Classify/segment input is corrupt or unreadable | `predictor.py` / `segmenter.py` |
+| **404** | `IMAGE_NOT_FOUND` | `image_id` does not exist in storage | `main.py:92,105,162` |
+| **404** | `CLASSIFICATION_NOT_FOUND` | No cached classify result for `image_id` | `main.py:148` |
+| **404** | `SEGMENTATION_NOT_FOUND` | No cached segment result for `image_id` | `main.py:192` |
+| **500** | `PREDICTION_FAILURE` | TensorFlow model raised an exception | `main.py:128` |
+
+### Caching Behavior
+
+- **Classification results** are persisted in `storage/results/results.json` under the key `classify:<image_id>`.
+- **Segmentation results** are persisted in `storage/results/results.json` under the key `segment:<image_id>` (metadata) and `storage/segments/<image_id>_segment.json` (full mask data).
+- Re-issuing `POST /api/classify` or `POST /api/segment` with the same `image_id` returns the cached result immediately — no re-inference.
+- To force re-inference, pass a new `image_id` (re-upload the image).
+- The JSON index file uses thread-safe locking (`threading.Lock`) for concurrent safety.
+
+### Model Lifecycle
+
+1. **Lazy loading** — Models are loaded on the first classify or segment request, not at server startup.
+2. **Thread-safe** — A double-checked locking pattern (`threading.Lock`) ensures only one thread loads the model.
+3. **In-memory cache** — Once loaded, the model stays in a module-level global for the lifetime of the process.
+4. **A/B routing** — Before inference, `ModelRouter.resolve_classifier_version()` chooses which model to use:
+   - If `model_version` is specified in the request, use it directly.
+   - If `AB_TESTING_ENABLED=true` and no version specified, randomly pick between default and `AB_CLASSIFIER_B`.
+   - Otherwise, use the default.
+
+## Storage Architecture
+
+All data is stored on the local filesystem:
+
+```
+storage/
+├── images/           # Uploaded images
+│   └── <image_id>.jpg
+├── segments/         # Segmentation results (JSON)
+│   └── <image_id>_segment.json
+└── results/          # API result index
+    └── results.json
+```
+
+`results.json` persists classification and segmentation metadata across restarts using a JSON file with thread-safe locking.
+
+## MLflow Tracking
+
+The project uses **MLflow** for experiment tracking and model registry.
+
+### Start the MLflow Tracking Server (from project root)
+
+```bash
+mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts --workers 1
+```
+
+Or run from inside `mlflow/`:
+
+```bash
+cd mlflow
+mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./artifacts --workers 1
+```
+
+Open `http://127.0.0.1:5000` in your browser.
+
+### Register a Model
+
+Run from the **project root**:
+
+```bash
+# Register classifier
+python mlflow/classifiers/register_classifier.py
+
+# Register segmenter
+python mlflow/segmenters/register_segmenter.py
+```
+
+Each script:
+1. Loads the `.keras` model from `mlflow/models/`
+2. Logs model parameters (architecture, input shape, framework)
+3. Evaluates against holdout data and logs metrics (accuracy, precision, recall, F1)
+4. Logs the model via `mlflow.tensorflow.log_model()`
+5. Registers the model in the Model Registry
+
+### View Registered Models
+
+After registering, models appear in the MLflow UI under the **Models** tab or query via CLI:
+
+```bash
+mlflow models list
+```
+
+### Tracking URI
+
+The scripts connect to `http://127.0.0.1:5000` by default. To use a different tracking server:
+
+```bash
+export MLFLOW_TRACKING_URI=http://your-server:5000
+```
+
+## Prometheus Monitoring
+
+The API exposes real-time metrics at `GET /metrics` for Prometheus scraping.
+
+### Metrics Exported
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `endpoint`, `status` | Total HTTP requests |
+| `http_request_duration_seconds` | Histogram | `method`, `endpoint` | Request latency distribution |
+| `inference_total` | Counter | `model_type`, `prediction` | Total inference calls |
+| `inference_latency_seconds` | Histogram | `model_type` | Inference latency distribution |
+
+### Scraping Configuration
+
+Add this to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: "image_api"
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["localhost:8000"]
+```
+
+### Grafana Dashboard
+
+A pre-built dashboard is available at `grafana/dashboard.json`. Import it into Grafana:
+
+1. Open Grafana -> **+** -> **Import**
+2. Upload `grafana/dashboard.json`
+3. Select the Prometheus data source
+4. Click **Import**
+
+The dashboard includes panels for:
+- HTTP request rate and latency (p50, p95, p99)
+- Inference rate by model type
+- Inference latency percentiles
+
+## Model A/B Testing
+
+The API supports A/B testing between multiple model versions.
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---|---|---|
+| `AB_TESTING_ENABLED` | `false` | Enable A/B testing |
+| `AB_CLASSIFIER_B` | — | Alternative model URI for version B |
+
+### How It Works
+
+1. **Explicit version selection** — Pass `model_version` in the classify request body to use a specific version
+2. **Automatic routing** — When no version is specified and A/B testing is enabled, traffic is randomly split between the default classifier and `AB_CLASSIFIER_B`
+3. **Result tracking** — The `model_version` field in the response shows which version handled each request
+
+### Example
+
+```bash
+# A/B testing enabled — random split between default and version B
+set AB_TESTING_ENABLED=true
+set AB_CLASSIFIER_B=some_other_model
+
+# Explicitly use a specific version
+curl -X POST http://127.0.0.1:8000/api/classify \
+  -H "Content-Type: application/json" \
+  -d '{"image_id": "IMAGE_ID", "model_version": "default"}'
+```
+
+### Check A/B Status
+
+```bash
+curl http://127.0.0.1:8000/api/ab-status
+```
+
+Response:
+```json
+{
+  "enabled": true,
+  "classifier_a": "default",
+  "classifier_b": "some_other_model",
+  "segmenter": "default"
+}
+```
+
+## Testing
+
+### Prerequisites for Testing
+
+- API server running on `127.0.0.1:8000`
+
+### Test with curl
+
+```bash
+# Health check
+curl http://127.0.0.1:8000/health
+
+# Model status
+curl http://127.0.0.1:8000/models/status
+
+# Upload an image
+curl -X POST http://127.0.0.1:8000/api/upload \
+  -F "file=@/path/to/test_image.jpg"
+
+# Classify (replace IMAGE_ID with the upload response)
+curl -X POST http://127.0.0.1:8000/api/classify \
+  -H "Content-Type: application/json" \
+  -d '{"image_id": "IMAGE_ID"}'
+
+# Segment
+curl -X POST http://127.0.0.1:8000/api/segment \
+  -H "Content-Type: application/json" \
+  -d '{"image_id": "IMAGE_ID"}'
+```
+
+### Test with Python
+
+```python
+import requests
+
+# Upload
+with open("test_image.jpg", "rb") as f:
+    resp = requests.post(
+        "http://127.0.0.1:8000/api/upload",
+        files={"file": ("test.jpg", f, "image/jpeg")}
+    )
+    data = resp.json()
+    image_id = data["image_id"]
+    print(f"Uploaded: {image_id}")
+
+# Classify
+resp = requests.post(
+    "http://127.0.0.1:8000/api/classify",
+    json={"image_id": image_id}
+)
+print(resp.json())
+
+# Segment
+resp = requests.post(
+    "http://127.0.0.1:8000/api/segment",
+    json={"image_id": image_id}
+)
+print(resp.json())
+```
+
+## Troubleshooting
+
+### "ImportError: attempted relative import with no known parent package"
+
+Run uvicorn from the project root, not from `app/`:
+```bash
+# Correct
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# Wrong (will fail)
+cd app && uvicorn main:app ...
+```
+
+### "Form data requires python-multipart"
+
+```bash
+pip install python-multipart
+```
+
+### "Storage paths are wrong"
+
+Ensure you start the server from the project root directory so that `storage/` resolves correctly.
+
+## License
+
+MIT
