@@ -100,11 +100,6 @@ with mlflow.start_run():
         registered_model_name="skin_cancer_classifier",
     )
 
-    mlflow.register_model(
-        f"runs:/{mlflow.active_run().info.run_id}/model",
-        "skin_cancer_classifier"
-    )
-
     print(f"Run ID: {mlflow.active_run().info.run_id}")
     print(f"Logged params: {params}")
     print(f"Logged metrics: {metrics}")
