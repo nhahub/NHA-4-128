@@ -79,7 +79,8 @@ dermascan/
 │   │   └── knowledge_base.md           # Consolidated clinical knowledge base (RAG source)
 │   ├── updated_file_2.xlsx             # Core dataset: Patients / Summary / Family_Relationships
 │   ├── five_sample_patients_with_features.xlsx  # Feature vectors for image-matching demo
-│   └── image_registry.json             # (generated) registered image ↔ patient ID links
+│   └── extract_global_features.py       # Extract global features from Patient images.
+|   └── image_registry.json              # (generated) registered image ↔ patient ID links
 │
 ├── static/
 │   └── index.html             # Frontend chat UI (served at the API's root)
