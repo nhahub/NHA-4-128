@@ -108,7 +108,7 @@ dermascan/
 ### Requirements
 - Python 3.10+
 - A Groq API key ([console.groq.com/keys](https://console.groq.com/keys))
-- The two `.keras` model files and `data/updated_file_2.xlsx` placed locally (see **Data & Models** below — these are intentionally not committed to the repo)
+- The two `.keras` model files and `data/five_sample_patients_with_features.xlsx` placed locally (see **Data & Models** below — these are intentionally not committed to the repo)
 
 ### Option A — pip + requirements.txt
 ```bash
