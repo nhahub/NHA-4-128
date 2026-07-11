@@ -13,7 +13,6 @@ class UploadResponse(BaseModel):
 
 class ClassifyRequest(BaseModel):
     image_id: str
-    model_version: Optional[str] = None
 
 
 class ClassifyResponse(BaseModel):

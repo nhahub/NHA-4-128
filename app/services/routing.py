@@ -1,5 +1,5 @@
 import os
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 
 class ModelRouter:
@@ -12,14 +12,6 @@ class ModelRouter:
         )
         self._ab_enabled = os.getenv("AB_TESTING_ENABLED", "false").lower() == "true"
         self._ab_classifier_b = os.getenv("AB_CLASSIFIER_B")
-
-    def resolve_classifier_version(self, requested: Optional[str] = None) -> str:
-        if requested:
-            return requested
-        if self._ab_enabled and self._ab_classifier_b:
-            import random
-            return random.choice([self._default_classifier, self._ab_classifier_b])
-        return self._default_classifier
 
     def get_ab_status(self) -> Dict[str, Any]:
         return {

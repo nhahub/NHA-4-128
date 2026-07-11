@@ -1,7 +1,7 @@
 import time
 import numpy as np
 import tensorflow as tf
-from typing import Tuple, Optional
+from typing import Tuple
 from app.configs import get_classification_model, sigmoid_to_class
 from app.core.preprocessing import preprocess_image
 from app.core.validation import is_valid_image
@@ -10,7 +10,6 @@ from app.monitoring.metrics import inference_total, inference_latency_seconds
 
 def classify_image(
     file_bytes: bytes,
-    model_version: Optional[str] = None,
 ) -> Tuple[str, float, str]:
     start_time = time.time()
 
@@ -34,11 +33,10 @@ def classify_image(
     prediction = sigmoid_to_class(confidence)
 
     latency = time.time() - start_time
-    actual_version = model_version or "hf_savedmodel"
 
-    print(f"CLASSIFICATION: {prediction} ({confidence:.3f}) in {latency:.2f}s [{actual_version}]")
+    print(f"CLASSIFICATION: {prediction} ({confidence:.3f}) in {latency:.2f}s")
 
     inference_total.labels(model_type="classifier", prediction=prediction).inc()
     inference_latency_seconds.labels(model_type="classifier").observe(latency)
 
-    return prediction, confidence, actual_version
+    return prediction, confidence, "default"
