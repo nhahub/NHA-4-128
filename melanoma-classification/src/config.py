@@ -1,9 +1,15 @@
 import os
 
-# Paths (Preserving exact Kaggle notebook paths)
+# Kaggle dataset identifier (used by kagglehub for local downloads)
+KAGGLE_DATASET = "cdeotte/jpeg-melanoma-256x256"
+
+# Paths (Kaggle notebook paths — used when running on Kaggle)
 TRAIN_PATH = '/kaggle/input/melanoma-256x256/train'
 TEST_PATH = '/kaggle/input/melanoma-256x256/test'
 SAVE_DIR = '/kaggle/working/'
+
+# Local data directory (used when running outside Kaggle)
+LOCAL_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 # Hyperparameters
 BATCH_SIZE = 32
