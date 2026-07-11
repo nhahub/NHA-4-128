@@ -1,24 +1,13 @@
----
-title: Skin Cancer Detection API
-emoji: 🏥
-colorFrom: blue
-colorTo: red
-sdk: docker
-pinned: false
-license: mit
-short_description: FastAPI for skin cancer classification & segmentation
----
-
 # AI Image Classification & Segmentation API
 
-A FastAPI-based REST API for skin cancer image analysis, featuring classification and segmentation models loaded from Hugging Face Hub.
+A FastAPI-based REST API for skin cancer image analysis, featuring classification and segmentation models.
 
 ## Features
 
 - **Image Classification** — Classify skin lesion images as benign or malignant (binary sigmoid)
 - **Image Segmentation** — Run segmentation on skin lesion images
 - **Decoupled Endpoints** — Upload, classify, and segment are independent operations
-- **Lazy Model Loading** — Models download from HF Hub on first request, cached in memory
+- **Lazy Model Loading** — Models loaded on first request, cached in memory
 - **A/B Testing** — Route traffic between classifier model versions
 - **Prometheus Monitoring** — HTTP and inference metrics exposed at `/metrics`
 - **Health Monitoring** — Model status and service health endpoints
@@ -30,7 +19,7 @@ localback/
 ├── app/                          # Application package
 │   ├── __init__.py               # Package exports
 │   ├── main.py                   # FastAPI app, routes, server entry point
-│   ├── configs.py                # HF Hub model loading, storage paths
+│   ├── configs.py                # Model loading, storage paths
 │   ├── models.py                 # Pydantic request/response schemas
 │   ├── storage.py                # File I/O for images and results
 │   ├── core/
@@ -45,14 +34,13 @@ localback/
 │       ├── predictor.py          # Classification inference
 │       ├── segmenter.py          # Segmentation inference
 │       └── routing.py            # A/B testing model router
-├── forproduction/                # Deployment version for HF Spaces (separate)
+├── mlflow/                       # MLflow tracking data & scripts
 ├── storage/                      # Runtime file storage
 │   ├── images/                   # Uploaded images
 │   ├── segments/                 # Segmentation JSON results
 │   └── results/                  # API result index (results.json)
 ├── requirements.txt              # Python dependencies
-├── README.md                     # This file
-└── .gitignore                    # (not checked in — local only)
+└── README.md                     # This file
 ```
 
 ## API Overview
@@ -77,7 +65,6 @@ localback/
 
 - Python 3.11+
 - TensorFlow-compatible hardware (CPU is sufficient for development)
-- Hugging Face token with access to the model repository
 
 ### Setup
 
@@ -92,9 +79,6 @@ venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Set your Hugging Face token (required for model download)
-
 ```
 
 ### Start the API Server
@@ -106,17 +90,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 The API is now available at `http://127.0.0.1:8000`. Interactive docs at `http://127.0.0.1:8000/docs`.
 
-Models are downloaded automatically from Hugging Face Hub on first request and cached locally under `%TMP%\savedmodels\`.
-
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `HF_TOKEN` | — | **Required.** Hugging Face token for model access |
-| `HF_MODEL_REPO` | `omarelrayes/mlflow-artifacts` | HF Hub repo containing model zips |
-| `CLASSIFIER_MODEL_PATH` | `models/classifier_savedmodel.zip` | Path to classifier zip in HF repo |
-| `SEGMENTER_MODEL_PATH` | `models/segmenter_savedmodel.zip` | Path to segmenter zip in HF repo |
-| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (≥ → malicious) |
+| `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (>= malicious) |
 | `AB_TESTING_ENABLED` | `false` | Enable A/B testing between model versions |
 | `AB_CLASSIFIER_B` | — | Alternative model URI for A/B version B |
 | `STORAGE_DIR` | `./storage` | File storage root directory |
@@ -188,13 +166,13 @@ Run classification on a previously uploaded image.
   "image_id": "a1b2c3d4-e5f6-...",
   "prediction": "benign",
   "confidence": 0.987,
-  "model_version": "hf_savedmodel",
+  "model_version": "default",
   "status": "completed"
 }
 ```
 
-> **Prediction logic:** The model outputs a single sigmoid value (0–1). The class is determined by `CLASSIFIER_THRESHOLD` (default 0.5):
-> `malicious` if confidence ≥ 0.5, else `benign`.
+> **Prediction logic:** The model outputs a single sigmoid value (0-1). The class is determined by `CLASSIFIER_THRESHOLD` (default 0.5):
+> `malicious` if confidence >= 0.5, else `benign`.
 
 **Response 404:** Image not found
 
@@ -243,7 +221,7 @@ Run segmentation on a previously uploaded image.
   "status": "completed",
   "masks_shape": [1, 256, 256, 1],
   "max_confidence": 0.95,
-  "result_url": "storage\\segments\\a1b2c3d4-e5f6-_segment.json",
+  "result_url": "storage/segments/a1b2c3d4-e5f6-_segment.json",
   "error": null
 }
 ```
@@ -284,8 +262,8 @@ Retrieve a previously computed segmentation result.
   "classification_loaded": true,
   "segmentation_loaded": true,
   "storage_paths": {
-    "images": "storage\\images",
-    "segments": "storage\\segments"
+    "images": "storage/images",
+    "segments": "storage/segments"
   }
 }
 ```
@@ -333,12 +311,11 @@ storage/
 
 ## MLflow Tracking
 
-The project uses **MLflow** for experiment tracking and model registry. The "old" classic workflow uses a local MLflow server.
+The project uses **MLflow** for experiment tracking and model registry.
 
 ### Start the MLflow Tracking Server (from project root)
 
 ```bash
-# Windows: --workers 1 avoids multiprocessing crash
 mlflow ui --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root ./mlflow/artifacts --workers 1
 ```
 
@@ -356,10 +333,10 @@ Open `http://127.0.0.1:5000` in your browser.
 Run from the **project root**:
 
 ```bash
-# Register classifier (logs accuracy, precision, recall, F1 on holdout data)
+# Register classifier
 python mlflow/classifiers/register_classifier.py
 
-# Register segmenter (logs output validation metrics)
+# Register segmenter
 python mlflow/segmenters/register_segmenter.py
 ```
 
@@ -384,75 +361,6 @@ The scripts connect to `http://127.0.0.1:5000` by default. To use a different tr
 
 ```bash
 export MLFLOW_TRACKING_URI=http://your-server:5000
-```
-
-## Model Loading from Hugging Face Hub
-
-### Overview
-
-Models are stored as TensorFlow SavedModel zip archives on Hugging Face Hub and downloaded at runtime. No MLflow server is required.
-
-**Download flow:**
-
-```
-Request → get_classification_model() / get_segmentation_model()
-          │
-          ├── Is model cached on disk? → Return cached model
-          │
-          └── No → hf_hub_download(repo_id, filename)
-                   → Extract zip to /tmp/savedmodels/<name>/
-                   → tf.saved_model.load()
-                   → Return model signature
-```
-
-### Configuration (`app/configs.py`)
-
-| Variable | Default | Description |
-|---|---|---|
-| `HF_TOKEN` | — | **Required.** Hugging Face access token |
-| `HF_MODEL_REPO` | `omarelrayes/mlflow-artifacts` | HF Hub repository with model zips |
-| `CLASSIFIER_MODEL_PATH` | `models/classifier_savedmodel.zip` | Path to classifier zip |
-| `SEGMENTER_MODEL_PATH` | `models/segmenter_savedmodel.zip` | Path to segmenter zip |
-
-### Model Loading
-
-Models are loaded lazily on first request (`app/configs.py`):
-
-1. First call to `get_classification_model()` or `get_segmentation_model()` checks in-memory cache
-2. If `None`, acquires a **threading.Lock** (prevents race conditions)
-3. Downloads model zip from Hugging Face Hub via `hf_hub_download()`
-4. Extracts to `/tmp/savedmodels/<name>/`
-5. Loads via `tf.saved_model.load()` and returns the `serving_default` signature
-6. Caches the loaded model for all subsequent requests
-
-### Model Validation
-
-A validation script evaluates the model against a holdout dataset:
-
-```bash
-export HOLDOUT_DATA_DIR="./holdout_data"
-export VALIDATION_ACCURACY_THRESHOLD="0.80"
-python scripts/validation/validate_classifier.py
-```
-
-| Metric | Description |
-|---|---|
-| `holdout_accuracy` | Fraction of correct predictions (threshold 0.5) |
-| `holdout_precision` | Precision score |
-| `holdout_recall` | Recall score |
-| `holdout_f1` | F1 score |
-
-> **Note:** The classifier uses a **single sigmoid output** (not 2-class softmax). Predictions use a 0.5 threshold: `malicious` if confidence ≥ 0.5, else `benign`.
-
-**Holdout data directory structure:**
-```
-holdout_data/
-├── benign/
-│   ├── image001.jpg
-│   └── ...
-└── malicious/
-    ├── image100.jpg
-    └── ...
 ```
 
 ## Prometheus Monitoring
@@ -482,10 +390,10 @@ scrape_configs:
 
 ### Grafana Dashboard
 
-A pre-built dashboard is available at `forproduction/grafana/dashboard.json`. Import it into Grafana:
+A pre-built dashboard is available at `grafana/dashboard.json`. Import it into Grafana:
 
-1. Open Grafana → **+** → **Import**
-2. Upload `forproduction/grafana/dashboard.json`
+1. Open Grafana -> **+** -> **Import**
+2. Upload `grafana/dashboard.json`
 3. Select the Prometheus data source
 4. Click **Import**
 
@@ -496,14 +404,14 @@ The dashboard includes panels for:
 
 ## Model A/B Testing
 
-The API supports A/B testing between multiple model versions. This allows you to test new model versions against the production version with controlled traffic splitting.
+The API supports A/B testing between multiple model versions.
 
 ### Configuration
 
 | Environment Variable | Default | Description |
 |---|---|---|
 | `AB_TESTING_ENABLED` | `false` | Enable A/B testing |
-| `AB_CLASSIFIER_B` | — | Alternative model URI for version B (e.g., `some_other_model`) |
+| `AB_CLASSIFIER_B` | — | Alternative model URI for version B |
 
 ### How It Works
 
@@ -521,7 +429,7 @@ set AB_CLASSIFIER_B=some_other_model
 # Explicitly use a specific version
 curl -X POST http://127.0.0.1:8000/api/classify \
   -H "Content-Type: application/json" \
-  -d '{"image_id": "IMAGE_ID", "model_version": "hf_savedmodel"}'
+  -d '{"image_id": "IMAGE_ID", "model_version": "default"}'
 ```
 
 ### Check A/B Status
@@ -534,9 +442,9 @@ Response:
 ```json
 {
   "enabled": true,
-  "classifier_a": "hf_savedmodel",
+  "classifier_a": "default",
   "classifier_b": "some_other_model",
-  "segmenter": "hf_savedmodel"
+  "segmenter": "default"
 }
 ```
 
@@ -545,7 +453,6 @@ Response:
 ### Prerequisites for Testing
 
 - API server running on `127.0.0.1:8000`
-- `HF_TOKEN` set with access to the model repository
 
 ### Test with curl
 
@@ -620,36 +527,9 @@ cd app && uvicorn main:app ...
 pip install python-multipart
 ```
 
-### "HF_TOKEN not set"
-
-```bash
-export HF_TOKEN="your_token_here"
-```
-On Hugging Face Spaces, set this in the Space **Settings → Repository Secrets**.
-
-### "Model download failed"
-
-Ensure `HF_TOKEN` has access to the model repository. Verify the repo ID and model paths:
-```bash
-set HF_MODEL_REPO=omarelrayes/mlflow-artifacts
-set CLASSIFIER_MODEL_PATH=models/classifier_savedmodel.zip
-```
-
 ### "Storage paths are wrong"
 
 Ensure you start the server from the project root directory so that `storage/` resolves correctly.
-
-## Future Improvements
-
-- [x] Prometheus metrics + monitoring
-- [x] Model A/B testing framework
-- [x] Model download from HF Hub with caching
-- [ ] Replace JSON result store with SQLite/PostgreSQL
-- [ ] Async job queue for long-running segmentation
-- [ ] OAuth2 authentication
-- [ ] Rate limiting per endpoint
-- [ ] Structured logging (JSON format)
-- [ ] Response caching with Redis
 
 ## License
 
