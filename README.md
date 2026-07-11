@@ -106,6 +106,43 @@ GET http://127.0.0.1:8000/health
 | `/chat` | POST | Send a message to the LLM agent (role-aware, tool-using) |
 | `/health` | GET | Model/agent readiness check |
 
+User Question
+      ↓
+Retrieve Context
+      ↓
+gpt-oss-120b
+      ↓
+Final Answer
+
+"openai/gpt-oss-120b"
+Patient
+   ↓
+/set-role
+   ↓
+/analyze-image
+   ↓
+build_medical_report()
+   ↓
+compute_booking_priority()
+   ↓
+/book-appointment
+   ↓
+/chat
+   ↓
+search_knowledge_base()
+
+
+Doctor
+   ↓
+/set-role
+   ↓
+/register-image and analyze-image
+   ↓
+lookup_patient()
+   ↓
+find_matching_patient()
+   ↓
+build_medical_report()
 ---
 
 ## 🧠 Notes on the Chat Agent
