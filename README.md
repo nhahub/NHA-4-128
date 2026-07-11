@@ -293,6 +293,123 @@ Retrieve a previously computed segmentation result.
 }
 ```
 
+## Full API Reference
+
+### Pydantic Schemas
+
+All request/response models are defined in `app/models.py`:
+
+**`ClassifyRequest`**
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `image_id` | `str` (UUID) | Yes | — | Image identifier returned by upload |
+| `model_version` | `Optional[str]` | No | `null` | Explicit model version/URI; if omitted, uses default or A/B routing |
+
+**`ClassifyResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` | The input image ID |
+| `prediction` | `str` | `"benign"` or `"malicious"` (based on sigmoid threshold) |
+| `confidence` | `float` | Sigmoid output (0–1) |
+| `model_version` | `str` | Model version that served the request |
+| `status` | `str` | Always `"completed"` |
+
+**`SegmentRequest`**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `image_id` | `str` (UUID) | Yes | Image identifier from upload |
+
+**`SegmentResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` | The input image ID |
+| `status` | `str` | `"completed"` or error status |
+| `masks_shape` | `Optional[list]` | Shape of output mask array, e.g. `[1, 256, 256, 1]` |
+| `max_confidence` | `Optional[float]` | Maximum pixel-wise confidence in mask |
+| `result_url` | `Optional[str]` | Relative path to segmentation JSON artifact |
+| `error` | `Optional[str]` | Error message if segmentation failed |
+
+**`UploadResponse`**
+| Field | Type | Description |
+|---|---|---|
+| `image_id` | `str` (UUID v4) | Generated unique image identifier |
+| `filename` | `str` | Original uploaded filename |
+| `size_bytes` | `int` | File size in bytes |
+| `content_type` | `str` | MIME type (`image/jpeg` or `image/png`) |
+| `uploaded_at` | `str` | ISO 8601 timestamp |
+| `url` | `str` | Relative URL to retrieve the image |
+
+### End-to-End Data Flow
+
+```
+Client                    API Server                    Disk/Filesystem
+  │                          │                              │
+  │   POST /api/upload       │                              │
+  │   (multipart image) ────►│                              │
+  │                          │  validate type + size        │
+  │                          │  generate UUID v4            │
+  │                          │  write bytes ───────────────►│  storage/images/<id>.ext
+  │   ◄──── UploadResponse   │                              │
+  │                          │                              │
+  │   POST /api/classify     │                              │
+  │   {"image_id": "..."} ──►│                              │
+  │                          │  read image bytes ──────────►│  storage/images/<id>.ext
+  │                          │  check existing result ─────►│  storage/results/results.json
+  │                          │  [cache hit] ──── return     │
+  │                          │  [cache miss]                │
+  │                          │  lazy-load model (once)      │
+  │                          │  preprocess (resize, norm)   │
+  │                          │  inference (sigmoid score)   │
+  │                          │  save result ───────────────►│  storage/results/results.json
+  │   ◄──── ClassifyResponse │                              │
+  │                          │                              │
+  │   POST /api/segment      │                              │
+  │   {"image_id": "..."} ──►│                              │
+  │                          │  read image bytes ──────────►│  storage/images/<id>.ext
+  │                          │  check existing result ─────►│  storage/results/results.json
+  │                          │  [cache hit] ──── return     │
+  │                          │  [cache miss]                │
+  │                          │  lazy-load model (once)      │
+  │                          │  inference (mask array)      │
+  │                          │  save result ───────────────►│  storage/segments/<id>_segment.json
+  │                          │  index result ──────────────►│  storage/results/results.json
+  │   ◄──── SegmentResponse  │                              │
+  │                          │                              │
+  │   GET /api/images/<id>   │                              │
+  │   ──────────────────────►│  read bytes ────────────────►│  storage/images/<id>.ext
+  │   ◄──── raw image bytes  │                              │
+```
+
+### Validation & Error Codes
+
+| Status | Code | Condition | Source |
+|---|---|---|---|
+| **400** | `UNSUPPORTED_CONTENT_TYPE` | Uploaded file is not JPEG/PNG | `main.py:64` |
+| **400** | `FILE_TOO_LARGE` | File exceeds 10 MB limit | `main.py:71` |
+| **400** | `INVALID_IMAGE_FORMAT` | Classify/segment input is corrupt or unreadable | `predictor.py` / `segmenter.py` |
+| **404** | `IMAGE_NOT_FOUND` | `image_id` does not exist in storage | `main.py:92,105,162` |
+| **404** | `CLASSIFICATION_NOT_FOUND` | No cached classify result for `image_id` | `main.py:148` |
+| **404** | `SEGMENTATION_NOT_FOUND` | No cached segment result for `image_id` | `main.py:192` |
+| **500** | `PREDICTION_FAILURE` | TensorFlow model raised an exception | `main.py:128` |
+
+### Caching Behavior
+
+- **Classification results** are persisted in `storage/results/results.json` under the key `classify:<image_id>`.
+- **Segmentation results** are persisted in `storage/results/results.json` under the key `segment:<image_id>` (metadata) and `storage/segments/<image_id>_segment.json` (full mask data).
+- Re-issuing `POST /api/classify` or `POST /api/segment` with the same `image_id` returns the cached result immediately — no re-inference.
+- To force re-inference, pass a new `image_id` (re-upload the image).
+- The JSON index file uses thread-safe locking (`threading.Lock`) for concurrent safety.
+
+### Model Lifecycle
+
+1. **Lazy loading** — Models are loaded on the first classify or segment request, not at server startup.
+2. **Thread-safe** — A double-checked locking pattern (`threading.Lock`) ensures only one thread loads the model.
+3. **In-memory cache** — Once loaded, the model stays in a module-level global for the lifetime of the process.
+4. **A/B routing** — Before inference, `ModelRouter.resolve_classifier_version()` chooses which model to use:
+   - If `model_version` is specified in the request, use it directly.
+   - If `AB_TESTING_ENABLED=true` and no version specified, randomly pick between default and `AB_CLASSIFIER_B`.
+   - Otherwise, use the default.
+
 ## Storage Architecture
 
 All data is stored on the local filesystem:
