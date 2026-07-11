@@ -30,12 +30,8 @@ Create a `data/` folder containing:
 data/
 ├── updated_file_2.xlsx
 └── kb/
-    ├── 01_diagnoses_overview.md
-    ├── 02_risk_factors.md
-    ├── 03_genetics_and_hereditary.md
-    ├── 04_lesion_characteristics.md
-    ├── 05_patient_management.md
-    └── 06_image_and_dataset_info.md
+    ├── knowledge_base.md    
+    
 ```
 
 ## Installation & Execution (Windows PowerShell)
@@ -67,7 +63,7 @@ pip install -r requirements.txt
 ### 5. Configure the Groq API Key
 
 ```powershell
-$env:GROQ_API_KEY="YOUR_GROQ_API_KEY"
+$env:GROQ_API_KEY="gsk_XXXXXXXXXXXXXXXXXXXXXX"
 ```
 
 ### 6. Start the Application

@@ -15,7 +15,8 @@ data/image_registry.json
 *.h5
 *.pt
 *.onnx
-data/updated_file_2.xlsx
+*.pdf
+data/five_sample_patients_with_features.xlsx
 .vscode/
 .DS_Store
 Thumbs.db
