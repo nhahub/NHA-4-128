@@ -1,5 +1,4 @@
-# DermaScan AI — Project Setup & Run Guide
-
+<<<<<<< HEAD
 ## Project Structure
 
 ```text
@@ -50,17 +49,11 @@ cd dermascan_app
 
 ```powershell
 python -m venv .venv
-```
+# Windows
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
 
-### 3. Activate the Virtual Environment
-
-```powershell
-.venv\Scripts\activate
-```
-
-### 4. Install Dependencies
-
-```powershell
 pip install -r requirements.txt
 ```
 
@@ -70,45 +63,30 @@ pip install -r requirements.txt
 $env:GROQ_API_KEY="YOUR_GROQ_API_KEY"
 ```
 
-### 6. Start the Application
+### Data & models (not committed — see `.gitignore`)
+Place these locally before first run:
+- `skin_cancer_detection_final.keras`, `UNet_model.keras` — in the project root
+- `data/updated_file_2.xlsx` — the 1,000-patient clinical dataset
+- `data/five_sample_patients_with_features.xlsx` — sample feature vectors for image matching
+- `data/kb/knowledge_base.md` — already tracked in the repo; delete `.faiss/` if you edit it, so it rebuilds
 
-```powershell
+---
+
+## ▶️ Running
+
+```bash
 uvicorn main:app --reload --port 8000
 ```
-
-When the terminal displays:
-
-```text
-Application startup complete
+or, with uv:
+```bash
+uv run uvicorn main:app --reload --port 8000
 ```
 
-open your browser and navigate to:
+Then open **http://127.0.0.1:8000** — the API serves the chat UI directly from `static/`.
 
-```text
-http://localhost:8000
+First boot will build the FAISS index from `data/kb/*.md` (cached afterward in `.faiss/`) and
+load both the primary and fallback LLM agents — this can take a little while the first time.
+
+Check readiness anytime at:
 ```
-
-## Features
-
-* Role-based AI assistant (Patient / Doctor)
-* Interactive chat interface
-* Skin lesion image upload
-* Skin cancer classification
-* Lesion segmentation using U-Net
-* AI-generated medical guidance
-* Patient priority assessment
-* Doctor report generation for matched cases
-* Retrieval-Augmented Generation (RAG) knowledge base
-* LangGraph-powered workflow orchestration
-
-## Tech Stack
-
-* Python
-* FastAPI
-* LangGraph
-* LangChain
-* TensorFlow / Keras
-* U-Net
-* FAISS
-* HTML, CSS, JavaScript
-* Groq API
+GET http://127.0.0.1:8000/health
