@@ -106,7 +106,7 @@ async def classify(body: ClassifyRequest):
         raise HTTPException(status_code=404, detail="Image not found")
 
     existing = get_classification_result(body.image_id)
-    if existing and not body.model_version:
+    if existing:
         return ClassifyResponse(
             image_id=body.image_id,
             prediction=existing["prediction"],
@@ -115,13 +115,8 @@ async def classify(body: ClassifyRequest):
             status=existing.get("status", "completed"),
         )
 
-    resolved_uri = model_router.resolve_classifier_version(body.model_version)
-
     try:
-        prediction, confidence, actual_version = classify_image(
-            image_bytes,
-            model_version=resolved_uri,
-        )
+        prediction, confidence, actual_version = classify_image(image_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

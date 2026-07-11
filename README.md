@@ -8,7 +8,7 @@ A FastAPI-based REST API for skin cancer image analysis, featuring classificatio
 - **Image Segmentation** — Run segmentation on skin lesion images
 - **Decoupled Endpoints** — Upload, classify, and segment are independent operations
 - **Lazy Model Loading** — Models loaded on first request, cached in memory
-- **A/B Testing** — Route traffic between classifier model versions
+- **Defaults** — Always uses the model specified by `CLASSIFIER_MODEL_URI`
 - **Prometheus Monitoring** — HTTP and inference metrics exposed at `/metrics`
 - **Health Monitoring** — Model status and service health endpoints
 
@@ -95,8 +95,7 @@ The API is now available at `http://127.0.0.1:8000`. Interactive docs at `http:/
 | Variable | Default | Description |
 |---|---|---|
 | `CLASSIFIER_THRESHOLD` | `0.5` | Sigmoid decision threshold (>= malicious) |
-| `AB_TESTING_ENABLED` | `false` | Enable A/B testing between model versions |
-| `AB_CLASSIFIER_B` | — | Alternative model URI for A/B version B |
+| `CLASSIFIER_MODEL_URI` | `hf_savedmodel` | Model URI for the classifier |
 | `STORAGE_DIR` | `./storage` | File storage root directory |
 
 ## API Endpoint Documentation
@@ -300,10 +299,9 @@ Retrieve a previously computed segmentation result.
 All request/response models are defined in `app/models.py`:
 
 **`ClassifyRequest`**
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `image_id` | `str` (UUID) | Yes | — | Image identifier returned by upload |
-| `model_version` | `Optional[str]` | No | `null` | Explicit model version/URI; if omitted, uses default or A/B routing |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `image_id` | `str` (UUID) | Yes | Image identifier returned by upload |
 
 **`ClassifyResponse`**
 | Field | Type | Description |
@@ -405,10 +403,7 @@ Client                    API Server                    Disk/Filesystem
 1. **Lazy loading** — Models are loaded on the first classify or segment request, not at server startup.
 2. **Thread-safe** — A double-checked locking pattern (`threading.Lock`) ensures only one thread loads the model.
 3. **In-memory cache** — Once loaded, the model stays in a module-level global for the lifetime of the process.
-4. **A/B routing** — Before inference, `ModelRouter.resolve_classifier_version()` chooses which model to use:
-   - If `model_version` is specified in the request, use it directly.
-   - If `AB_TESTING_ENABLED=true` and no version specified, randomly pick between default and `AB_CLASSIFIER_B`.
-   - Otherwise, use the default.
+4. **Default model** — The classifier always uses the model specified by `CLASSIFIER_MODEL_URI` (default `"hf_savedmodel"`).
 
 ## Storage Architecture
 
@@ -518,52 +513,6 @@ The dashboard includes panels for:
 - HTTP request rate and latency (p50, p95, p99)
 - Inference rate by model type
 - Inference latency percentiles
-
-## Model A/B Testing
-
-The API supports A/B testing between multiple model versions.
-
-### Configuration
-
-| Environment Variable | Default | Description |
-|---|---|---|
-| `AB_TESTING_ENABLED` | `false` | Enable A/B testing |
-| `AB_CLASSIFIER_B` | — | Alternative model URI for version B |
-
-### How It Works
-
-1. **Explicit version selection** — Pass `model_version` in the classify request body to use a specific version
-2. **Automatic routing** — When no version is specified and A/B testing is enabled, traffic is randomly split between the default classifier and `AB_CLASSIFIER_B`
-3. **Result tracking** — The `model_version` field in the response shows which version handled each request
-
-### Example
-
-```bash
-# A/B testing enabled — random split between default and version B
-set AB_TESTING_ENABLED=true
-set AB_CLASSIFIER_B=some_other_model
-
-# Explicitly use a specific version
-curl -X POST http://127.0.0.1:8000/api/classify \
-  -H "Content-Type: application/json" \
-  -d '{"image_id": "IMAGE_ID", "model_version": "default"}'
-```
-
-### Check A/B Status
-
-```bash
-curl http://127.0.0.1:8000/api/ab-status
-```
-
-Response:
-```json
-{
-  "enabled": true,
-  "classifier_a": "default",
-  "classifier_b": "some_other_model",
-  "segmenter": "default"
-}
-```
 
 ## Testing
 
