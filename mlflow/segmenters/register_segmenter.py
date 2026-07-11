@@ -46,6 +46,7 @@ metrics["model_loaded"] = 1.0
 with mlflow.start_run():
     mlflow.log_params(params)
     mlflow.log_metrics(metrics)
+    mlflow.log_artifact(str(BASE_DIR / "data.xlsx"), artifact_path="dataset")
 
     mlflow.tensorflow.log_model(
         model=model,
