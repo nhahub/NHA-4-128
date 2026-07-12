@@ -15,7 +15,7 @@ A FastAPI-based REST API for skin cancer image analysis, featuring classificatio
 ## Folder Structure
 
 ```
-localback/
+backend_&MLflow/
 ├── app/                          # Application package
 │   ├── __init__.py               # Package exports
 │   ├── main.py                   # FastAPI app, routes, server entry point

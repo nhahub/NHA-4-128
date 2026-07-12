@@ -28,6 +28,7 @@ A REST API for skin cancer image analysis with two ML capabilities:
 - In-memory model caching with thread-safe locking
 - JSON file persistence for results
 - Prometheus metrics for HTTP requests and inference
+- All source lives under `backend_&MLflow/` for clean repo root
 
 ---
 
@@ -55,12 +56,11 @@ Client ──HTTP──→ FastAPI ──huggingface_hub──→ HF Hub (model 
 ## 3. Complete File Tree & Code Explanation
 
 ```
-localback/
+backend_&MLflow/
 ├── .vscode/                          # IDE settings (untracked)
-│
 ├── app/                              # Python package — the API
 │   ├── __init__.py                   # Re-exports key symbols
-│   ├── main.py                       # FastAPI app (11 endpoints)
+│   ├── main.py                       # FastAPI app
 │   ├── configs.py                    # Config, model loading, env vars
 │   ├── models.py                     # Pydantic schemas
 │   ├── storage.py                    # File save/load + JSON result store
@@ -76,24 +76,16 @@ localback/
 │       ├── predictor.py              # classify_image() — sigmoid → class
 │       ├── segmenter.py              # segment_image() — UNet inference
 │       └── routing.py                # ModelRouter with A/B testing
-│
-├── forproduction/                    # HF Spaces deployment version
-│   ├── Dockerfile                    # python:3.11-slim, uvicorn
-│   ├── requirements.txt              # tensorflow-cpu (not full TF)
-│   ├── Dockerfile
-│   ├── README.md                     # HF metadata + API docs
-│   ├── .gitignore
-│   ├── .gitattributes
-│   ├── grafana/dashboard.json
-│   ├── scripts/
-│   └── app/                          # Mirror of app/ with same 11 endpoints
-│
+├── mlflow/                           # MLflow tracking & model registry
 ├── storage/                          # Runtime data
 │   ├── images/                       # Uploaded images
 │   ├── segments/                     # Segmentation JSON files
 │   └── results/results.json          # Classification/segment metadata
-│
-├── requirements.txt                  # tensorflow (full), fastapi, etc.
+├── Notebooks/                        # Jupyter notebooks
+├── mini_API/                         # Mini API test harness
+├── Segmentation/                     # Segmentation experiments
+├── data.xlsx                         # Sample dataset
+├── requirements.txt                  # tensorflow, fastapi, etc.
 ├── README.md                         # Project README
 └── DOCUMENTATION.md                  # This file
 ```
@@ -376,14 +368,7 @@ Returns stored segmentation result or 404.
 - Reverted main project files (`app/`) to committed state using `git checkout`
 - Removed stray files from initial deploy (Dockerfile, .gitignore, .gitattributes, grafana/, scripts/, app/monitoring/gpu.py)
 
-### Phase 2: `forproduction/` Creation
-- Created `forproduction/` directory as the deployment version
-- Copied app source, added Dockerfile (python:3.11-slim, tensorflow-cpu), requirements.txt, README.md with HF Space metadata
-- Added missing `__init__.py` files for subpackages
-- Fixed storage path references (removed `api/` subdirectory prefix)
-
-### Phase 3: v3.1.0 — 11-Endpoint API Sync
-- Updated both `app/` and `forproduction/app/` to have identical 11 endpoints
+### Phase 2: v3.1.0 — 11-Endpoint API Sync
 - Added `app/services/routing.py` — A/B testing `ModelRouter`
 - Added `app/monitoring/metrics.py` — Prometheus metrics + middleware
 - Added `app/core/__init__.py`, `app/services/__init__.py`, `app/monitoring/__init__.py`
@@ -393,31 +378,27 @@ Returns stored segmentation result or 404.
 - Updated `storage.py` with thread-safe JSON result persistence
 - Fixed `app/__init__.py` imports
 
-### Phase 4: HF Space Push Attempt
-- Added `hf` remote to main repo
-- Created `deploy-hf` branch with Dockerfile, .gitignore, .gitattributes at root
-- Attempted push → blocked by large model files in git history
-- Attempted orphan branch → blocked by 10 MiB file limit on HF
-- **Reverted all HF-related changes** — branches deleted, remote removed, deployment files cleaned
-
-### Phase 5: Bug Fix
+### Phase 3: Bug Fix
 - Fixed `GET /metrics` endpoint — was missing `await` on `metrics_endpoint(request)` call
+
+### Phase 4: Repo Restructure
+- Consolidated all source into `backend_&MLflow/` directory
+- Removed `forproduction/` deployment artifacts (Dockerfile, HF config, grafana)
+- Stripped all Hugging Face Spaces metadata from docs
+- Removed `model_version` from classify request; simplified to always use default model
+- Removed A/B testing dead code (routing still shows config but no active routing)
 
 ### Key Files Modified/Added
 
 | File | Status | Lines | Purpose |
 |------|--------|-------|---------|
-| `app/main.py` | Modified | 233 | 11 endpoints, fixed metrics await |
+| `app/main.py` | Modified | 228 | 11 endpoints, fixed metrics await, removed model_version |
 | `app/configs.py` | Modified | 94 | HF Hub model loading, thread-safe cache |
-| `app/models.py` | Modified | 37 | Pydantic request/response schemas |
+| `app/models.py` | Modified | 34 | Pydantic schemas (model_version removed) |
 | `app/storage.py` | Modified | 93 | File I/O + JSON result persistence |
-| `app/services/predictor.py` | Modified | 44 | Binary classification with sigmoid |
+| `app/services/predictor.py` | Modified | 42 | Binary classification — simplified |
 | `app/services/segmenter.py` | Modified | 50 | Segmentation inference |
-| `app/services/routing.py` | **Added** | 33 | A/B testing model router |
-| `app/monitoring/metrics.py` | **Added** | 44 | Prometheus metrics + middleware |
-| `app/core/__init__.py` | **Added** | 0 | Package marker |
-| `app/services/__init__.py` | **Added** | 0 | Package marker |
-| `app/monitoring/__init__.py` | **Added** | 0 | Package marker |
-| `README.md` | Modified | — | Updated for local-only accuracy |
-| `DOCUMENTATION.md` | **Added** | — | This file |
-| `requirements.txt` | Modified | — | tensorflow (not tf-cpu) |
+| `app/services/routing.py` | Modified | 25 | ModelRouter — removed resolver, kept status |
+| `app/monitoring/metrics.py` | Added | 44 | Prometheus metrics + middleware |
+| `README.md` | Modified | — | Updated for restructured repo |
+| `DOCUMENTATION.md` | Modified | — | This file |
